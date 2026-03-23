@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+*.react-backup
+convert-to-vue.py
+fix-vue-components.py
+react-shim.ts
