@@ -53,6 +53,7 @@ import {
   PSkeletonInput,
   POfflineBanner,
   CopyBtn,
+  PixellotLogo,
 } from "../primitives";
 import {
   PTypographyPreview,
