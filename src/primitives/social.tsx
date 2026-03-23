@@ -4,6 +4,11 @@ import { useColors, T, F, DEFAULTS, _isLightColor, focusRing, JERSEY_PATH_73, JE
 
 import { PTeamLogo } from "./badges";
 import { PBtn } from "./buttons";
+import { PDivider } from "./layout";
+import { PSearchBar } from "./inputs";
+import { PAccordion } from "./lists";
+import { PHighlightCard, FacebookOutlineIcon, XOutlineIcon, InstagramOutlineIcon, GlobeOutlineIcon } from "./cards";
+import { PPlayerAvatarRow } from "./players";
 
 type Competition = { name: string; teams?: any[] };
 

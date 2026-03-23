@@ -2,10 +2,11 @@ import { useState, useRef, useEffect, createContext, useContext, type ReactNode,
 import { Eye, EyeOff, ChevronDown, Copy, Check, Search, Play, X, ArrowLeft, Download, Upload, Bookmark, Bell, User, Sun, Moon, Menu, Share2 } from "lucide-react";
 import { useColors, T, F, DEFAULTS, _isLightColor, focusRing, JERSEY_PATH_73, JERSEY_PATH_56, IconComponent } from "../utils";
 
-import { PTeamLogo, PPlayerNumberBadge, PAvatar } from "./badges";
+import { PTeamLogo, PPlayerNumberBadge, PAvatar, PBellIcon } from "./badges";
 import { PBtn } from "./buttons";
-import { PDivider } from "./layout";
-import { PAccordion } from "./lists";
+import { PBackBar, PDivider } from "./layout";
+import { FacebookOutlineIcon, XOutlineIcon, InstagramOutlineIcon, YouTubeOutlineIcon, TikTokOutlineIcon, EmailOutlineIcon } from "./cards";
+import { PAccordion, PFollowingRow } from "./lists";
 
 type BottomTab = { id: string; label: string; icon?: any };
 type SideMenuItem = { label: string; icon?: string; subItems?: string[]; variant?: "default" | "danger" };

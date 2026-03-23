@@ -17,8 +17,7 @@ import {
   PVideoTypeChips,
   PVideoActionBar,
   PShareCurtain,
-  PAthleteProfileCard,
-  PTeamPage,
+  AthleteProfileCard,
   PTeamStatsBar,
   PGameLeaders,
   PPlayerStatsTable,
@@ -54,6 +53,28 @@ import {
   POfflineBanner,
   CopyBtn,
   PixellotLogo,
+  PVideoActionIconBtn,
+  PHighlightsBadge,
+  PMenuListItem,
+  PShareCurtainStatic,
+  PCompetitionFollowList,
+  PHomeFollowingSection,
+  PTeamFollowCardPreview,
+  PTeamFollowGrid,
+  PEmptyState,
+  PErrorState,
+  PPlayerStatsPaywall,
+  PTeamStatsPaywall,
+  PMyFollowingList,
+  PFooter,
+  AppleIcon,
+  ChipLockSvg,
+  GoogleIcon,
+  LockSvg,
+  PSocialLinks,
+  PNotificationItem,
+  PClaimedPlayerCard,
+  PJersey,
 } from "../primitives";
 import {
   PTypographyPreview,
@@ -70,9 +91,172 @@ import {
 } from "./previews";
 import { C } from "../docs/vue-examples";
 
-// Create a context for theme 
-import { createContext, useContext } from "react";
+// Create a context for theme
+import { createContext, useContext, type ReactNode } from "react";
 const ThemeCtx = createContext("light");
+
+// ── Showcase-only components (extracted from monolith) ──
+
+const CodeBlock = ({ code, title }) => {
+  const c = useColors();
+  const isLight = useThemeMode() === "light";
+  return <div style={{ background: isLight ? "#1e293b" : "#0D1117", borderRadius: T.radii.badge, overflow: "hidden", marginTop: T.spacing.md }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: `${T.spacing.sm}px ${T.spacing.md}px`, background: isLight ? "#0f172a" : "#161b22", borderBottom: `1px solid ${isLight ? "#334155" : "#30363d"}` }}>
+      <span style={{ color: isLight ? "#94a3b8" : "#8b949e", fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.semibold}}>{title}</span><CopyBtn text={code} />
+    </div>
+    <pre style={{ padding: T.spacing.lg, margin: 0, color: isLight ? "#e2e8f0" : "#c9d1d9", fontSize: T.typography.sizes.caption, lineHeight: 1.6, overflow: "auto", maxHeight: 400, fontFamily: '"Fira Code","SF Mono",monospace', whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{code}</pre>
+  </div>;
+};
+
+type CardProps = { title?: string; desc?: string; children?: ReactNode; code?: string; codeTitle?: string; tokens?: any };
+const Card = ({ title, desc, children, code, codeTitle }: CardProps) => {
+  const c = useColors();
+  const isLight = useThemeMode() === "light";
+  return <div style={{ background: c.white, border: `1px solid ${isLight ? c.gray200 : c.gray200}`, borderRadius: T.radii.md, overflow: "hidden", marginBottom: T.spacing.lg2 }}>
+    <div style={{ padding: "14px 20px", borderBottom: `1px solid ${isLight ? c.gray50 : c.gray100}` }}>
+      <h3 style={{ margin: 0, fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.bold, color: c.darkText }}>{title}</h3>
+      {desc && <p style={{ margin: "4px 0 0", fontSize: T.typography.sizes.caption, color: c.gray500 }}>{desc}</p>}
+    </div>
+    <div style={{ padding: 20 }}>{children}</div>
+    {code && <CodeBlock code={code} title={codeTitle || "SFC"} />}
+  </div>;
+};
+
+const Swatch = ({ name, hex }) => {
+  const c = useColors();
+  return <div style={{ display: "flex", alignItems: "center", gap: T.spacing.sm2, padding: "5px 0" }}>
+    <div style={{ width: 36, height: 36, borderRadius: T.radii.thumb, background: hex, border: `1px solid ${c.gray200}`, flexShrink: 0 }} />
+    <div><div style={{ fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.semibold, color: c.darkText }}>{name}</div><div style={{ fontSize: T.typography.sizes.xxs, color: c.gray500, fontFamily: "monospace" }}>{hex}</div></div>
+  </div>;
+};
+
+type ProseBlockProps = { children?: ReactNode; variant?: "muted" | "default" };
+function ProseBlock({ children, variant = "muted" }: ProseBlockProps) {
+  const c = useColors();
+  const clr = variant === "subtle" ? c.gray400 : c.gray500;
+  return <div style={{ fontSize: T.typography.sizes.body2, color: clr, lineHeight: 1.6 }}>{children}</div>;
+}
+
+function SpecBlock({ children, variant = "dark", lineHeight = 2 }) {
+  const c = useColors();
+  const clr = variant === "muted" ? c.gray500 : c.darkText;
+  return <div style={{ fontSize: T.typography.sizes.body2, color: clr, lineHeight, fontFamily: F }}>{children}</div>;
+}
+
+function NavBtn({ s, sec, setSec, isMobile, setNavOpen }: { s: any, sec: string, setSec: (v: string) => void, isMobile: boolean, setNavOpen: (v: boolean) => void }) {
+  const c = useColors();
+  const [fo, setFo] = useState(false);
+  return <button onClick={() => { if (!s.disabled) { setSec(s.id); if (isMobile) setNavOpen(false); } }} aria-current={sec === s.id ? "page" : undefined} onFocus={() => !s.disabled && setFo(true)} onBlur={() => setFo(false)} style={{ display: "block", width: "100%", padding: "7px 14px", border: "none", textAlign: "left", cursor: s.disabled ? "default" : "pointer", fontSize: T.typography.sizes.caption, fontWeight: sec === s.id ? 600 : (s.disabled ? 700 : 400), background: sec === s.id ? `${c.primary}15` : "transparent", color: s.disabled ? c.gray400 : (sec === s.id ? c.primary : c.gray500), borderLeft: sec === s.id ? `3px solid ${c.primary}` : "3px solid transparent", opacity: s.disabled ? 0.6 : 1, transition: "background 0.3s ease, color 0.3s ease", borderRadius: T.radii.sm, outline: fo ? `2px solid ${c.primary}` : "none", outlineOffset: -2 }}>{s.label}</button>;
+}
+
+function InputPlayground() {
+  const c = useColors();
+  const [inputType, setInputType] = useState("email");
+  const [error, setError] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [disabled, setDisabled] = useState(false);
+  const [placeholder, setPlaceholder] = useState("Email Address...");
+  const types = ["email", "password", "text", "tel"];
+  const presets = [
+    { label: "Default", fn: () => { setError(false); setErrorMsg(""); setDisabled(false); setInputType("email"); setPlaceholder("Email Address..."); } },
+    { label: "Password", fn: () => { setError(false); setErrorMsg(""); setDisabled(false); setInputType("password"); setPlaceholder("Enter password..."); } },
+    { label: "Error", fn: () => { setError(true); setErrorMsg("Please enter a valid email"); setDisabled(false); setInputType("email"); setPlaceholder("Email Address..."); } },
+    { label: "Disabled", fn: () => { setError(false); setErrorMsg(""); setDisabled(true); setInputType("email"); setPlaceholder("Email Address..."); } },
+  ];
+  const toggleStyle = (active) => ({ padding: "4px 10px", fontSize: T.typography.sizes.xxs, fontWeight: active ? 600 : 400, border: `1px solid ${active ? c.primary : c.gray200}`, background: active ? `${c.primary}15` : c.white, color: active ? c.primary : c.gray500, borderRadius: T.radii.sm, cursor: "pointer", fontFamily: F });
+  return <div style={{ maxWidth: 398 }}>
+    <div style={{ marginBottom: T.spacing.lg }}>
+      <div style={{ fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, color: c.gray400, textTransform: "uppercase", letterSpacing: 1, marginBottom: T.spacing.sm }}>Quick Presets</div>
+      <div style={{ display: "flex", gap: T.spacing.sm, flexWrap: "wrap" }}>
+        {presets.map(p => <button key={p.label} onClick={p.fn} style={{ padding: `5px ${T.spacing.md}px`, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, border: `1px solid ${c.gray200}`, background: c.white, color: c.darkText, borderRadius: T.radii.chip, cursor: "pointer", fontFamily: F }}>{p.label}</button>)}
+      </div>
+    </div>
+    <div style={{ marginBottom: T.spacing.lg }}>
+      <div style={{ fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, color: c.gray400, textTransform: "uppercase", letterSpacing: 1, marginBottom: T.spacing.sm }}>Type</div>
+      <div style={{ display: "flex", gap: T.spacing.xs }}>
+        {types.map(t => <button key={t} onClick={() => { setInputType(t); setPlaceholder(t === "password" ? "Enter password..." : t === "tel" ? "Phone Number..." : t === "email" ? "Email Address..." : "Full Name..."); }} style={toggleStyle(inputType === t)}>{t}</button>)}
+      </div>
+    </div>
+    <div style={{ marginBottom: T.spacing.lg, display: "flex", gap: T.spacing.xl }}>
+      <label style={{ display: "flex", alignItems: "center", gap: T.spacing.xs, fontSize: T.typography.sizes.caption, color: c.gray500, cursor: "pointer", fontFamily: F }}>
+        <input type="checkbox" checked={error} onChange={e => { setError(e.target.checked); if (e.target.checked && !errorMsg) setErrorMsg("This field is required"); if (!e.target.checked) setErrorMsg(""); }} /> Error
+      </label>
+      <label style={{ display: "flex", alignItems: "center", gap: T.spacing.xs, fontSize: T.typography.sizes.caption, color: c.gray500, cursor: "pointer", fontFamily: F }}>
+        <input type="checkbox" checked={disabled} onChange={e => setDisabled(e.target.checked)} /> Disabled
+      </label>
+    </div>
+    {error && <div style={{ marginBottom: T.spacing.lg }}>
+      <div style={{ fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, color: c.gray400, textTransform: "uppercase", letterSpacing: 1, marginBottom: T.spacing.sm }}>Error Message</div>
+      <input value={errorMsg} onChange={e => setErrorMsg(e.target.value)} style={{ width: "100%", padding: "6px 10px", fontSize: T.typography.sizes.caption, border: `1px solid ${c.gray200}`, borderRadius: T.radii.sm, fontFamily: F, background: c.white, color: c.darkText, boxSizing: "border-box" }} />
+    </div>}
+    <div style={{ padding: T.spacing.lg, background: c.gray50, borderRadius: T.radii.badge, border: `1px solid ${c.gray100}` }}>
+      <div style={{ fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }}>Live Preview</div>
+      <PInput placeholder={placeholder} type={inputType} error={error} errorMsg={error ? errorMsg : undefined} disabled={disabled} />
+    </div>
+  </div>;
+}
+
+function SearchBarShowcase() {
+  const c = useColors();
+  const [filledVal, setFilledVal] = useState("Premier League");
+  const [typingVal, setTypingVal] = useState("");
+  return <div>
+    <h2 style={{ fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }}>SearchBar</h2>
+    <p style={{ fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }}>Reusable pill-shaped search input. Used anywhere a search pattern is needed. Supports empty, focused, filled, clearable, read-only, and disabled states.</p>
+    <Card title="Empty (default)" desc="Placeholder visible, no value">
+      <div style={{ maxWidth: 390 }}><PSearchBar placeholder="Search any team or competition..." /></div>
+    </Card>
+    <Card title="Focused" desc="Click to see the focus ring — 2px primary border appears on focus">
+      <div style={{ maxWidth: 390 }}><PSearchBar placeholder="Search any team or competition..." autoFocus /></div>
+    </Card>
+    <Card title="Filled" desc="Controlled value with onChange — user is typing">
+      <div style={{ maxWidth: 390 }}><PSearchBar placeholder="Search..." value={typingVal} onChange={setTypingVal} /></div>
+    </Card>
+    <Card title="Filled + clearable" desc="onClear shows an ✕ button when value is not empty">
+      <div style={{ maxWidth: 390 }}><PSearchBar placeholder="Search..." value={filledVal} onChange={setFilledVal} onClear={() => setFilledVal("")} /></div>
+    </Card>
+    <Card title="Read-only" desc="readOnly — acts as a tappable trigger, grayed text, pointer cursor">
+      <div style={{ maxWidth: 390 }}><PSearchBar placeholder="Search any team or competition..." readOnly /></div>
+    </Card>
+    <Card title="Disabled" desc="disabled — dimmed appearance, not interactive">
+      <div style={{ maxWidth: 390 }}><PSearchBar placeholder="Search any team or competition..." disabled /></div>
+    </Card>
+    <Card title="Props">
+      <PropsBlock>
+        <div>placeholder?: string — placeholder text (default "Search...")</div>
+        <div>value?: string — controlled input value</div>
+        <div>onChange?: (value: string) =&gt; void — called on every keystroke</div>
+        <div>onClear?: () =&gt; void — if provided, shows ✕ clear button when value is not empty</div>
+        <div>readOnly?: boolean — non-editable, tappable trigger mode (default false)</div>
+        <div>disabled?: boolean — fully disabled, dimmed (default false)</div>
+        <div>onClick?: () =&gt; void — called when tapping a readOnly search bar</div>
+        <div>autoFocus?: boolean — auto-focus input on mount (default false)</div>
+        <div>iconSize?: number — search icon size in px (default 18)</div>
+      </PropsBlock>
+    </Card>
+  </div>;
+}
+
+function TeamPage() {
+  const c = useColors();
+  return <div style={{ width: 390, fontFamily: F, background: `linear-gradient(180deg,${c.white} 0%,${c.gray100} 25%,${c.gray200} 50%,${c.gray100} 75%,${c.white} 100%)` }}>
+    <PBackBar label="S.D Spartans" onBack={() => {}} />
+    <div style={{ padding: "24px 16px" }}>
+      <div style={{ background: c.gray50, borderRadius: T.radii.badge, padding: `${T.spacing.lg}px`, display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.lg }}>
+        <div style={{ width: 100, height: 100, borderRadius: "50%", background: c.primary, display: "flex", alignItems: "center", justifyContent: "center", color: c.white, fontSize: T.typography.sizes.h1, fontWeight: T.typography.weights.bold }}>SD</div>
+        <div style={{ textAlign: "center" }}>
+          <h2 style={{ margin: 0, fontSize: T.typography.sizes.h2, fontWeight: T.typography.weights.bold, color: c.darkText }}>S.D Spartans</h2>
+          <p style={{ margin: "4px 0 0", fontSize: T.typography.sizes.caption, color: c.gray500 }}>Men's Basketball</p>
+        </div>
+        <div style={{ display: "flex", gap: T.spacing.md }}>
+          <PBtn variant="primary" size="md">Follow</PBtn>
+          <PBtn variant="secondary" size="md">Share</PBtn>
+        </div>
+      </div>
+    </div>
+    <div style={{ padding: "0 16px 24px" }}><PSectionHeader title="Recent Games" /></div>
+  </div>;
+}
 
 export default function App() {
   const [theme, setTheme] = useState("light");

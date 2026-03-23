@@ -3,6 +3,8 @@ import { Eye, EyeOff, ChevronDown, Copy, Check, Search, Play, X, ArrowLeft, Down
 import { useColors, T, F, DEFAULTS, _isLightColor, focusRing, JERSEY_PATH_73, JERSEY_PATH_56, IconComponent } from "../utils";
 
 import { PBtn } from "./buttons";
+import { PTeamLogo, LockSvg } from "./badges";
+import { PDivider } from "./layout";
 
 type PTeamRowProps = { name?: string; score?: string; isWinner?: boolean; logoSize?: number; fontSize?: number; fontWeight?: number; gap?: number };
 function PTeamRow({ name, score, isWinner = true, logoSize = 28, fontSize = 16, fontWeight = 500, gap = 12 }: PTeamRowProps) {

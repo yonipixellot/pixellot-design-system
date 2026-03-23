@@ -2,7 +2,10 @@ import { useState, useRef, useEffect, createContext, useContext, type ReactNode,
 import { Eye, EyeOff, ChevronDown, Copy, Check, Search, Play, X, ArrowLeft, Download, Upload, Bookmark, Bell, User, Sun, Moon, Menu, Share2 } from "lucide-react";
 import { useColors, T, F, DEFAULTS, _isLightColor, focusRing, JERSEY_PATH_73, JERSEY_PATH_56, IconComponent } from "../utils";
 
-import { PBadge } from "./badges";
+import { PBadge, LockSvg, PLiveBadge, PTeamLogo, PPlayerPhoto } from "./badges";
+import { PTeamRow, PStatCard } from "./stats";
+import { PBackBar, PSectionHeader, PSeeAllLink } from "./layout";
+import { PVideoThumbnail } from "./media";
 
 function PLiveGameCard() {
   const c = useColors();
@@ -91,12 +94,7 @@ function PScoreCard() {
   </div>;
 }
 
-type LockSvgProps = { size?: number; fill?: string };
-function LockSvg({ size = 11, fill = LIGHT.premiumYellow }: LockSvgProps) {
-  const w = size;
-  const h = size * (10 / 8);
-  return <svg width={w} height={h} viewBox="0 0 8 10" fill="none"><path clipRule="evenodd" d="M7.02621 4.06889H6.73849L6.73733 2.70111C6.73616 1.21111 5.46535 -0.00110943 3.90332 1.67782e-06C2.3413 0.00111279 1.07048 1.21333 1.07164 2.70333L1.07397 4.07111H0.971466C0.434483 4.07222 -0.00115988 4.48778 4.94171e-06 5V9.07222C4.94171e-06 9.58444 0.436813 10 0.973795 10L7.02853 9.99667C7.56552 9.99667 8.00116 9.58111 8 9.06889V4.99556C8 4.48333 7.56319 4.06889 7.02621 4.06889ZM2.11765 4.07111L2.11532 2.70333C2.11532 1.76222 2.91672 0.996668 3.90332 0.995557C4.88992 0.995557 5.69248 1.76111 5.69248 2.70111L5.69481 4.06889L2.11765 4.07111Z" fill={fill} fillRule="evenodd" /></svg>;
-}
+/* LockSvg imported from ./badges */
 
 type PVideoThumbnailProps = { orientation?: "landscape" | "portrait" | "vertical"; locked?: boolean; duration?: string; title?: string; subtitle?: string; showJerseyBadge?: boolean; jerseyNumber?: number; jerseyLabel?: string; jerseyColor?: string; thumbnailUrl?: string };
 
@@ -269,4 +267,4 @@ function PNotificationCenter() {
 
 
 
-export { PLiveGameCard, PGameResultCard, PScoreCard, PHighlightCard, PHighlightsBadge, PNotificationItem, PNotificationCenter };
+export { PLiveGameCard, PGameResultCard, PScoreCard, PHighlightCard, PHighlightsBadge, PNotificationItem, PNotificationCenter, AthleteProfileCard, XOutlineIcon, FacebookOutlineIcon, InstagramOutlineIcon, GlobeOutlineIcon, YouTubeOutlineIcon, TikTokOutlineIcon, EmailOutlineIcon };

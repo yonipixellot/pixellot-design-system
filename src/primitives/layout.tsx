@@ -3,6 +3,7 @@ import { Eye, EyeOff, ChevronDown, Copy, Check, Search, Play, X, ArrowLeft, Down
 import { useColors, T, F, DEFAULTS, _isLightColor, focusRing, JERSEY_PATH_73, JERSEY_PATH_56, IconComponent } from "../utils";
 
 import { PBtn } from "./buttons";
+import { LockSvg, ChipLockSvg } from "./badges";
 
 type PDividerProps = {
   color?: string;
@@ -50,59 +51,6 @@ function PBackBar({ label = "Back", showShare = false, onBack, onShare, padding 
   );
 }
 
-/* ── SearchBar showcase (stateful demos for all states) ── */
-function SearchBarShowcase() {
-  const c = useColors();
-  const [filledVal, setFilledVal] = useState("Premier League");
-  const [typingVal, setTypingVal] = useState("");
-  return <div>
-    <h2 style={{ fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }}>SearchBar</h2>
-    <p style={{ fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }}>Reusable pill-shaped search input. Used anywhere a search pattern is needed. Supports empty, focused, filled, clearable, read-only, and disabled states.</p>
-    <Card title="Empty (default)" desc="Placeholder visible, no value">
-      <div style={{ maxWidth: 390 }}>
-        <PSearchBar placeholder="Search any team or competition..." />
-      </div>
-    </Card>
-    <Card title="Focused" desc="Click to see the focus ring — 2px primary border appears on focus">
-      <div style={{ maxWidth: 390 }}>
-        <PSearchBar placeholder="Search any team or competition..." autoFocus />
-      </div>
-    </Card>
-    <Card title="Filled" desc="Controlled value with onChange — user is typing">
-      <div style={{ maxWidth: 390 }}>
-        <PSearchBar placeholder="Search..." value={typingVal} onChange={setTypingVal} />
-      </div>
-    </Card>
-    <Card title="Filled + clearable" desc="onClear shows an ✕ button when value is not empty">
-      <div style={{ maxWidth: 390 }}>
-        <PSearchBar placeholder="Search..." value={filledVal} onChange={setFilledVal} onClear={() => setFilledVal("")} />
-      </div>
-    </Card>
-    <Card title="Read-only" desc="readOnly — acts as a tappable trigger, grayed text, pointer cursor">
-      <div style={{ maxWidth: 390 }}>
-        <PSearchBar placeholder="Search any team or competition..." readOnly />
-      </div>
-    </Card>
-    <Card title="Disabled" desc="disabled — dimmed appearance, not interactive">
-      <div style={{ maxWidth: 390 }}>
-        <PSearchBar placeholder="Search any team or competition..." disabled />
-      </div>
-    </Card>
-    <Card title="Props">
-      <PropsBlock>
-        <div>placeholder?: string — placeholder text (default "Search...")</div>
-        <div>value?: string — controlled input value</div>
-        <div>onChange?: (value: string) =&gt; void — called on every keystroke</div>
-        <div>onClear?: () =&gt; void — if provided, shows ✕ clear button when value is not empty</div>
-        <div>readOnly?: boolean — non-editable, tappable trigger mode (default false)</div>
-        <div>disabled?: boolean — fully disabled, dimmed (default false)</div>
-        <div>onClick?: () =&gt; void — called when tapping a readOnly search bar</div>
-        <div>autoFocus?: boolean — auto-focus input on mount (default false)</div>
-        <div>iconSize?: number — search icon size in px (default 18)</div>
-      </PropsBlock>
-    </Card>
-  </div>;
-}
 
 
 
@@ -151,12 +99,7 @@ function PUpgradeBanner() {
   </div>;
 }
 
-function ChipLockSvg() {
-  const c = useColors();
-  return <div style={{ width: 20, height: 20, borderRadius: "50%", background: c.premiumDark, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "none" }}>
-    <LockSvg size={8} fill={c.premiumYellow} />
-  </div>;
-}
+/* ChipLockSvg imported from ./badges */
 
 
 
