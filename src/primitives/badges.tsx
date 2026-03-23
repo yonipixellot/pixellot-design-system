@@ -17,7 +17,7 @@ function PBadge({ variant = "live" }: PBadgeProps) {
   var badgeBorder = variant === "highlights" ? `${T.strokes.thin}px solid ${c.highlightsBadgeText}` : "none";
   return <div style={{ display: "inline-flex", alignItems: "center", gap: T.spacing.xs, background: v.background, color: badgeColor, padding: `${T.spacing.xs}px ${T.spacing.md}px`, borderRadius: T.radii.badge, fontSize: v.fontSize, fontWeight: v.fontWeight, textTransform: v.textTransform, border: badgeBorder }}>
     {v.dot && <><style>{`@keyframes liveDotFlicker { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
-    <div style={{ width: 6, height: 6, borderRadius: "50%", background: c.white, animation: "liveDotFlicker 1.2s ease-in-out infinite" }} /></>}
+    <div style={{ width: 6, height: 6, borderRadius: "50%", background: c.white, animation: "liveDotFlicker 1.2s ease-in-out infinite" }} data-live="" /></>}
     {v.icon && <Play size={10} fill={c.premiumYellow} color={c.premiumYellow} />}
     {v.label}
   </div>;

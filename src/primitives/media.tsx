@@ -23,7 +23,7 @@ function PVideoThumbnail({ orientation = "landscape", locked = false, duration =
   const subStyle = isVert
     ? { fontSize: T.typography.sizes.mini, fontWeight: T.typography.weights.bold, color: c.gray300, lineHeight: "15px", marginTop: T.spacing.xxs }
     : { fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.regular, color: c.gray300, lineHeight: "16.5px", marginTop: T.spacing.xxs };
-  return <div style={{ position: "relative", overflow: "hidden", background: c.heroBg, ...container }}>
+  return <div style={{ position: "relative", overflow: "hidden", background: c.heroBg, ...container }} data-card="">
     {/* Thumbnail image if provided */}
     {thumbnailUrl && <img src={thumbnailUrl} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", zIndex: 0 }} />}
     {/* Blur overlay for locked content */}

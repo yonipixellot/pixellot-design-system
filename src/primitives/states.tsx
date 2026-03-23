@@ -81,14 +81,14 @@ function PSkeletonBlock({ width, height, borderRadius, style }: { width?: number
     backgroundSize: "200% 100%",
     animation: "shimmer 1.5s infinite ease-in-out",
     ...style
-  }} />;
+  }} data-skeleton="" />;
 }
 
 
 function PSkeletonCard() {
   const c = useColors();
   return <div style={{ background: c.white, border: `1px solid ${c.gray100}`, borderRadius: T.radii.md, overflow: "hidden" }}>
-    <div style={{ width: "100%", height: 180, background: `linear-gradient(90deg, ${c.gray100} 25%, ${c.gray50} 50%, ${c.gray100} 75%)`, backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite ease-in-out" }} />
+    <div style={{ width: "100%", height: 180, background: `linear-gradient(90deg, ${c.gray100} 25%, ${c.gray50} 50%, ${c.gray100} 75%)`, backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite ease-in-out" }} data-skeleton="" />
     <div style={{ padding: T.spacing.md, display: "flex", flexDirection: "column", gap: T.spacing.sm }}>
       <PSkeletonBlock height={20} style={{ width: "80%" }} />
       <PSkeletonBlock height={16} style={{ width: "100%" }} />

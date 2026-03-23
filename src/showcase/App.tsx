@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Eye, EyeOff, ChevronDown, Copy, Check, Search, Play, X, ArrowLeft, Download, Upload, Bookmark, Bell, User, Sun, Moon, Menu, Share2 } from "lucide-react";
 import { T, F, DEFAULTS, LIGHT, DARK } from "../tokens";
-import { useColors, useThemeMode, ThemeProvider } from "../theme";
+import { useColors, useThemeMode, useToggleTheme, useSetThemeMode, ThemeCtx } from "../theme";
 import {
   PInput,
   PSelect,
@@ -91,9 +91,7 @@ import {
 } from "./previews";
 import { C } from "../docs/vue-examples";
 
-// Create a context for theme
 import { createContext, useContext, type ReactNode } from "react";
-const ThemeCtx = createContext("light");
 
 // ── Showcase-only components (extracted from monolith) ──
 
@@ -259,7 +257,8 @@ function TeamPage() {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState("light");
+  const theme = useThemeMode();
+  const toggleTheme = useToggleTheme();
   const [sec, setSec] = useState("overview");
   const [tab, setTab] = useState("signin");
   const [selJerseys, setSelJerseys] = useState([]);
@@ -395,7 +394,7 @@ export default function App() {
               <div><div style={{ fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.bold, color: c.darkText, transition: "color 0.3s ease" }}>Pixellot</div><div style={{ fontSize: T.typography.sizes.mini, color: c.gray500 }}>Design System v2</div></div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: T.spacing.xs }}>
-              <button onClick={() => setTheme(t => t === "light" ? "dark" : "light")}
+              <button onClick={toggleTheme}
                 aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
                 style={{ background: "none", border: "none", cursor: "pointer", padding: T.spacing.xs, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: T.radii.sm }}>
                 {theme === "light" ? <Moon size={18} color={c.gray400} /> : <Sun size={18} color={c.gray400} />}
@@ -2282,13 +2281,11 @@ export default function App() {
    ═══════════════════════════════════════════════════════════════════ */
 
 
-  const dc = theme === "dark" ? DARK : LIGHT;
+  const dc = useColors();
 
   return (
-    <ThemeCtx.Provider value={theme}>
-      <div style={{ position: "fixed", inset: 0, background: dc.white, color: dc.darkText, transition: "background 0.3s ease, color 0.3s ease", overflow: "auto" }}>
-        {renderContent()}
-      </div>
-    </ThemeCtx.Provider>
+    <div style={{ position: "fixed", inset: 0, background: dc.white, color: dc.darkText, transition: "background 0.3s ease, color 0.3s ease", overflow: "auto" }}>
+      {renderContent()}
+    </div>
   );
 }

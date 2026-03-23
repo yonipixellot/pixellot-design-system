@@ -91,7 +91,7 @@ function PAccordion({ items, allowMultiple = false, defaultOpen = null, headerSt
                 aria-hidden="true"
                 style={{ transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.2s", flexShrink: 0 }} />
             </button>
-            {isOpen && <div role="region" style={{ paddingBottom: T.spacing.lg, ...contentStyle }}>{item.content}</div>}
+            {isOpen && <div role="region" style={{ paddingBottom: T.spacing.lg, ...contentStyle }} data-accordion-content="">{item.content}</div>}
           </div>
         );
       })}

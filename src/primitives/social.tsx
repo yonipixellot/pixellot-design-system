@@ -49,7 +49,7 @@ function PTeamFollowCard({ teamName = "S.D Spartans Men", logoUrl, followed = fa
   const followColor = followed ? c.primary : c.darkText;
   return <button onClick={onClick} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     aria-pressed={followed} aria-label={(followed ? "Unfollow " : "Follow ") + teamName}
-    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, flex: "1 0 0", minWidth: 0, padding: `${T.spacing.md}px ${T.spacing.lg}px ${T.spacing.sm}px ${T.spacing.lg}px`, background: hovered ? c.gray100 : c.gray50, borderRadius: T.radii.badge, border: followed ? `2px solid ${c.primary}` : `1px solid ${c.gray200}`, cursor: "pointer", transition: "background 0.15s, border 0.15s", boxSizing: "border-box" }}>
+    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, flex: "1 0 0", minWidth: 0, padding: `${T.spacing.md}px ${T.spacing.lg}px ${T.spacing.sm}px ${T.spacing.lg}px`, background: hovered ? c.gray100 : c.gray50, borderRadius: T.radii.badge, border: followed ? `2px solid ${c.primary}` : `1px solid ${c.gray200}`, cursor: "pointer", transition: "background 0.15s, border 0.15s", boxSizing: "border-box" }} data-card="">
     <PTeamLogo size={48} name={teamName} logoUrl={logoUrl} />
     <span style={{ fontFamily: F, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.darkText, textAlign: "center", lineHeight: "20px", height: 40, overflow: "hidden", alignSelf: "stretch", wordBreak: "break-word", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{teamName}</span>
     <PDivider style={{ alignSelf: "stretch" }} />

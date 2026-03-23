@@ -9,7 +9,7 @@ import { PVideoThumbnail } from "./media";
 
 function PLiveGameCard() {
   const c = useColors();
-  return <div style={{ minWidth: 240, flex: 1, borderRadius: T.radii.card, overflow: "hidden", flexShrink: 0 }}>
+  return <div style={{ minWidth: 240, flex: 1, borderRadius: T.radii.card, overflow: "hidden", flexShrink: 0 }} data-card="">
     {/* Header — darker gray top section */}
     <div style={{ background: c.gray200, borderRadius: `${T.radii.card}px ${T.radii.card}px 0 0` }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: `${T.spacing.md}px ${T.spacing.lg}px` }}>
@@ -40,7 +40,7 @@ function PLiveGameCard() {
 
 function PGameResultCard() {
   const c = useColors();
-  return <div style={{ background: c.gray100, borderRadius: T.radii.card, display: "flex", gap: T.spacing.lg, marginBottom: T.spacing.md, height: 116, overflow: "hidden" }}>
+  return <div style={{ background: c.gray100, borderRadius: T.radii.card, display: "flex", gap: T.spacing.lg, marginBottom: T.spacing.md, height: 116, overflow: "hidden" }} data-card="">
     {/* Date column — darker gray, left-rounded only */}
     <div style={{ width: 72, flexShrink: 0, background: c.gray200, borderRadius: `${T.radii.card}px 0 0 ${T.radii.card}px`, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -65,7 +65,7 @@ function PGameResultCard() {
 
 function PScoreCard() {
   const c = useColors();
-  return <div style={{ background: c.gray100, borderRadius: T.radii.card, padding: T.spacing.lg, width: "100%", maxWidth: 398, boxSizing: "border-box" }}>
+  return <div style={{ background: c.gray100, borderRadius: T.radii.card, padding: T.spacing.lg, width: "100%", maxWidth: 398, boxSizing: "border-box" }} data-card="">
     <div style={{ display: "flex", alignItems: "center", gap: T.spacing.sm }}>
       {/* Left team column */}
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: T.spacing.sm }}>
@@ -102,7 +102,7 @@ type PVideoThumbnailProps = { orientation?: "landscape" | "portrait" | "vertical
 type PHighlightCardProps = { title?: string; date?: string; duration?: string; locked?: boolean; emoji?: string };
 function PHighlightCard({ title = "Weiss with the dimes", date = "NOV 13, 2025", duration = "1:23", locked = true, emoji = "\uD83C\uDFC0" }: PHighlightCardProps) {
   const c = useColors();
-  return <div style={{ position: "relative", width: 130, height: 190, borderRadius: T.radii.badge, overflow: "hidden", background: c.heroBg, flexShrink: 0 }}>
+  return <div style={{ position: "relative", width: 130, height: 190, borderRadius: T.radii.badge, overflow: "hidden", background: c.heroBg, flexShrink: 0 }} data-card="">
     <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg, #2a4a7f 0%, #1a3a5c 40%, #3a6a9f 70%, #1a2a4a 100%)" }} />
     <div style={{ position: "absolute", top: 6, left: 6, background: "rgba(0,0,0,0.55)", borderRadius: T.radii.pill, padding: "1px 5px", zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <span style={{ fontFamily: F, fontWeight: T.typography.weights.medium, fontSize: T.typography.sizes.micro, color: "#FFFFFF", lineHeight: 1 }}>{duration}</span>
@@ -142,7 +142,7 @@ function AthleteProfileCard({
   const chevronR = <ChevronDown size={12} color={accentColor} style={{ transform: "rotate(-90deg)" }} />;
 
   return (
-    <div style={{ width: 390, fontFamily: F, background: `linear-gradient(180deg,${c.white} 0%,${c.gray100} 25%,${c.gray200} 50%,${c.gray100} 75%,${c.white} 100%)`, overflowX: "hidden" }}>
+    <div style={{ width: 390, fontFamily: F, background: `linear-gradient(180deg,${c.white} 0%,${c.gray100} 25%,${c.gray200} 50%,${c.gray100} 75%,${c.white} 100%)`, overflowX: "hidden" }} data-card="">
 
       {/* ── Back + Share — uses DS PBackBar ── */}
       <PBackBar showShare onBack={onBack} onShare={onShare} padding="24px 16px 0" />
@@ -233,7 +233,7 @@ const EmailOutlineIcon = ({ size = 20, color = "#7d899b", strokeWidth: sw = 1.5 
 type PNotificationItemProps = { jerseyNumber?: number; text?: string };
 function PNotificationItem({ jerseyNumber = 4, text = "\"Player #4 Highlight\" from the game \"S.D Spartans vs. Logan Thunder (121-89, Nov 13, 2025)\" is now ready!" }: PNotificationItemProps) {
   const c = useColors();
-  return <div style={{ display: "flex", gap: T.spacing.md, padding: `${T.spacing.md2}px 0`, borderBottom: `1px solid ${c.gray100}`, alignItems: "flex-start" }}>
+  return <div style={{ display: "flex", gap: T.spacing.md, padding: `${T.spacing.md2}px 0`, borderBottom: `1px solid ${c.gray100}`, alignItems: "flex-start" }} data-card="">
     <div style={{ position: "relative", flexShrink: 0 }}>
       <svg width={50} height={50 * (67/73)} viewBox="0 0 73 73" fill="none">
         <path d={JERSEY_PATH_73} fill={c.jerseyRed} stroke={c.white} strokeWidth={T.strokes.thick} />

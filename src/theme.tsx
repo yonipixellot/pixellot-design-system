@@ -1,35 +1,69 @@
 /**
  * Theme — React context and hooks for theme mode and colors
+ *
+ * Usage:
+ *   <ThemeProvider>
+ *     <App />
+ *   </ThemeProvider>
+ *
+ * In any component:
+ *   const colors = useColors();         // LIGHT or DARK palette
+ *   const mode = useThemeMode();        // "light" | "dark"
+ *   const toggle = useToggleTheme();    // () => void — flips mode
+ *   const setMode = useSetThemeMode();  // (mode: "light"|"dark") => void
  */
 
-import React, { createContext, useContext, type ReactNode, type CSSProperties } from "react";
-import { F, T, LIGHT, DARK } from "./tokens";
+import React, { createContext, useContext, useMemo, type ReactNode } from "react";
+import { LIGHT, DARK } from "./tokens";
 
-export const ThemeCtx = createContext<"light" | "dark">("light");
+// ── Contexts ──
+type ThemeMode = "light" | "dark";
+export const ThemeCtx = createContext<ThemeMode>("light");
+const ThemeSetCtx = createContext<(mode: ThemeMode) => void>(() => {});
 
-/**
- * useColors — Get the current color palette based on theme mode
- */
+// ── Hooks ──
+
+/** Get the full color palette for the current theme mode */
 export function useColors() {
-  const th = useContext(ThemeCtx);
-  return th === "dark" ? DARK : LIGHT;
+  const mode = useContext(ThemeCtx);
+  return mode === "dark" ? DARK : LIGHT;
 }
 
-/**
- * useThemeMode — Get the current theme mode
- */
-export function useThemeMode() {
+/** Get the current theme mode string */
+export function useThemeMode(): ThemeMode {
   return useContext(ThemeCtx);
 }
 
-/**
- * ThemeProvider — Wrap your app to provide theme context
- */
-export function ThemeProvider({ children, initialMode = "light" }: { children: ReactNode; initialMode?: "light" | "dark" }) {
-  const [mode, setMode] = React.useState<"light" | "dark">(initialMode);
+/** Set the theme mode directly */
+export function useSetThemeMode() {
+  return useContext(ThemeSetCtx);
+}
+
+/** Toggle between light and dark */
+export function useToggleTheme() {
+  const mode = useContext(ThemeCtx);
+  const setMode = useContext(ThemeSetCtx);
+  return () => setMode(mode === "light" ? "dark" : "light");
+}
+
+// ── Provider ──
+
+export interface ThemeProviderProps {
+  children: ReactNode;
+  initialMode?: ThemeMode;
+}
+
+export function ThemeProvider({ children, initialMode = "light" }: ThemeProviderProps) {
+  const [mode, setMode] = React.useState<ThemeMode>(initialMode);
+
+  // Stable setter ref — avoids unnecessary re-renders
+  const setter = useMemo(() => setMode, []);
+
   return (
     <ThemeCtx.Provider value={mode}>
-      {children}
+      <ThemeSetCtx.Provider value={setter}>
+        {children}
+      </ThemeSetCtx.Provider>
     </ThemeCtx.Provider>
   );
 }

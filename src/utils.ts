@@ -7,7 +7,8 @@ import type { CSSProperties } from "react";
 
 // Re-export everything from tokens and theme so primitives only need one import
 export { T, F, DEFAULTS, LIGHT, DARK } from "./tokens";
-export { ThemeCtx, useColors, useThemeMode } from "./theme";
+export { ThemeCtx, useColors, useThemeMode, useToggleTheme, useSetThemeMode, ThemeProvider } from "./theme";
+export type { ThemeProviderProps } from "./theme";
 
 // ── Types ──
 export type IconComponent = React.ComponentType<{ size?: number; color?: string; fill?: string; style?: CSSProperties }>;
