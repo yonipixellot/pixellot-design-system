@@ -25,6 +25,291 @@
     mod
   ));
 
+  // node_modules/scheduler/cjs/scheduler.production.js
+  var require_scheduler_production = __commonJS({
+    "node_modules/scheduler/cjs/scheduler.production.js"(exports) {
+      "use strict";
+      function push(heap, node) {
+        var index = heap.length;
+        heap.push(node);
+        a: for (; 0 < index; ) {
+          var parentIndex = index - 1 >>> 1, parent = heap[parentIndex];
+          if (0 < compare(parent, node))
+            heap[parentIndex] = node, heap[index] = parent, index = parentIndex;
+          else break a;
+        }
+      }
+      function peek(heap) {
+        return 0 === heap.length ? null : heap[0];
+      }
+      function pop(heap) {
+        if (0 === heap.length) return null;
+        var first = heap[0], last = heap.pop();
+        if (last !== first) {
+          heap[0] = last;
+          a: for (var index = 0, length = heap.length, halfLength = length >>> 1; index < halfLength; ) {
+            var leftIndex = 2 * (index + 1) - 1, left = heap[leftIndex], rightIndex = leftIndex + 1, right = heap[rightIndex];
+            if (0 > compare(left, last))
+              rightIndex < length && 0 > compare(right, left) ? (heap[index] = right, heap[rightIndex] = last, index = rightIndex) : (heap[index] = left, heap[leftIndex] = last, index = leftIndex);
+            else if (rightIndex < length && 0 > compare(right, last))
+              heap[index] = right, heap[rightIndex] = last, index = rightIndex;
+            else break a;
+          }
+        }
+        return first;
+      }
+      function compare(a, b) {
+        var diff = a.sortIndex - b.sortIndex;
+        return 0 !== diff ? diff : a.id - b.id;
+      }
+      exports.unstable_now = void 0;
+      if ("object" === typeof performance && "function" === typeof performance.now) {
+        localPerformance = performance;
+        exports.unstable_now = function() {
+          return localPerformance.now();
+        };
+      } else {
+        localDate = Date, initialTime = localDate.now();
+        exports.unstable_now = function() {
+          return localDate.now() - initialTime;
+        };
+      }
+      var localPerformance;
+      var localDate;
+      var initialTime;
+      var taskQueue = [];
+      var timerQueue = [];
+      var taskIdCounter = 1;
+      var currentTask = null;
+      var currentPriorityLevel = 3;
+      var isPerformingWork = false;
+      var isHostCallbackScheduled = false;
+      var isHostTimeoutScheduled = false;
+      var needsPaint = false;
+      var localSetTimeout = "function" === typeof setTimeout ? setTimeout : null;
+      var localClearTimeout = "function" === typeof clearTimeout ? clearTimeout : null;
+      var localSetImmediate = "undefined" !== typeof setImmediate ? setImmediate : null;
+      function advanceTimers(currentTime) {
+        for (var timer = peek(timerQueue); null !== timer; ) {
+          if (null === timer.callback) pop(timerQueue);
+          else if (timer.startTime <= currentTime)
+            pop(timerQueue), timer.sortIndex = timer.expirationTime, push(taskQueue, timer);
+          else break;
+          timer = peek(timerQueue);
+        }
+      }
+      function handleTimeout(currentTime) {
+        isHostTimeoutScheduled = false;
+        advanceTimers(currentTime);
+        if (!isHostCallbackScheduled)
+          if (null !== peek(taskQueue))
+            isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline());
+          else {
+            var firstTimer = peek(timerQueue);
+            null !== firstTimer && requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
+          }
+      }
+      var isMessageLoopRunning = false;
+      var taskTimeoutID = -1;
+      var frameInterval = 5;
+      var startTime = -1;
+      function shouldYieldToHost() {
+        return needsPaint ? true : exports.unstable_now() - startTime < frameInterval ? false : true;
+      }
+      function performWorkUntilDeadline() {
+        needsPaint = false;
+        if (isMessageLoopRunning) {
+          var currentTime = exports.unstable_now();
+          startTime = currentTime;
+          var hasMoreWork = true;
+          try {
+            a: {
+              isHostCallbackScheduled = false;
+              isHostTimeoutScheduled && (isHostTimeoutScheduled = false, localClearTimeout(taskTimeoutID), taskTimeoutID = -1);
+              isPerformingWork = true;
+              var previousPriorityLevel = currentPriorityLevel;
+              try {
+                b: {
+                  advanceTimers(currentTime);
+                  for (currentTask = peek(taskQueue); null !== currentTask && !(currentTask.expirationTime > currentTime && shouldYieldToHost()); ) {
+                    var callback = currentTask.callback;
+                    if ("function" === typeof callback) {
+                      currentTask.callback = null;
+                      currentPriorityLevel = currentTask.priorityLevel;
+                      var continuationCallback = callback(
+                        currentTask.expirationTime <= currentTime
+                      );
+                      currentTime = exports.unstable_now();
+                      if ("function" === typeof continuationCallback) {
+                        currentTask.callback = continuationCallback;
+                        advanceTimers(currentTime);
+                        hasMoreWork = true;
+                        break b;
+                      }
+                      currentTask === peek(taskQueue) && pop(taskQueue);
+                      advanceTimers(currentTime);
+                    } else pop(taskQueue);
+                    currentTask = peek(taskQueue);
+                  }
+                  if (null !== currentTask) hasMoreWork = true;
+                  else {
+                    var firstTimer = peek(timerQueue);
+                    null !== firstTimer && requestHostTimeout(
+                      handleTimeout,
+                      firstTimer.startTime - currentTime
+                    );
+                    hasMoreWork = false;
+                  }
+                }
+                break a;
+              } finally {
+                currentTask = null, currentPriorityLevel = previousPriorityLevel, isPerformingWork = false;
+              }
+              hasMoreWork = void 0;
+            }
+          } finally {
+            hasMoreWork ? schedulePerformWorkUntilDeadline() : isMessageLoopRunning = false;
+          }
+        }
+      }
+      var schedulePerformWorkUntilDeadline;
+      if ("function" === typeof localSetImmediate)
+        schedulePerformWorkUntilDeadline = function() {
+          localSetImmediate(performWorkUntilDeadline);
+        };
+      else if ("undefined" !== typeof MessageChannel) {
+        channel = new MessageChannel(), port = channel.port2;
+        channel.port1.onmessage = performWorkUntilDeadline;
+        schedulePerformWorkUntilDeadline = function() {
+          port.postMessage(null);
+        };
+      } else
+        schedulePerformWorkUntilDeadline = function() {
+          localSetTimeout(performWorkUntilDeadline, 0);
+        };
+      var channel;
+      var port;
+      function requestHostTimeout(callback, ms) {
+        taskTimeoutID = localSetTimeout(function() {
+          callback(exports.unstable_now());
+        }, ms);
+      }
+      exports.unstable_IdlePriority = 5;
+      exports.unstable_ImmediatePriority = 1;
+      exports.unstable_LowPriority = 4;
+      exports.unstable_NormalPriority = 3;
+      exports.unstable_Profiling = null;
+      exports.unstable_UserBlockingPriority = 2;
+      exports.unstable_cancelCallback = function(task) {
+        task.callback = null;
+      };
+      exports.unstable_forceFrameRate = function(fps) {
+        0 > fps || 125 < fps ? console.error(
+          "forceFrameRate takes a positive int between 0 and 125, forcing frame rates higher than 125 fps is not supported"
+        ) : frameInterval = 0 < fps ? Math.floor(1e3 / fps) : 5;
+      };
+      exports.unstable_getCurrentPriorityLevel = function() {
+        return currentPriorityLevel;
+      };
+      exports.unstable_next = function(eventHandler) {
+        switch (currentPriorityLevel) {
+          case 1:
+          case 2:
+          case 3:
+            var priorityLevel = 3;
+            break;
+          default:
+            priorityLevel = currentPriorityLevel;
+        }
+        var previousPriorityLevel = currentPriorityLevel;
+        currentPriorityLevel = priorityLevel;
+        try {
+          return eventHandler();
+        } finally {
+          currentPriorityLevel = previousPriorityLevel;
+        }
+      };
+      exports.unstable_requestPaint = function() {
+        needsPaint = true;
+      };
+      exports.unstable_runWithPriority = function(priorityLevel, eventHandler) {
+        switch (priorityLevel) {
+          case 1:
+          case 2:
+          case 3:
+          case 4:
+          case 5:
+            break;
+          default:
+            priorityLevel = 3;
+        }
+        var previousPriorityLevel = currentPriorityLevel;
+        currentPriorityLevel = priorityLevel;
+        try {
+          return eventHandler();
+        } finally {
+          currentPriorityLevel = previousPriorityLevel;
+        }
+      };
+      exports.unstable_scheduleCallback = function(priorityLevel, callback, options) {
+        var currentTime = exports.unstable_now();
+        "object" === typeof options && null !== options ? (options = options.delay, options = "number" === typeof options && 0 < options ? currentTime + options : currentTime) : options = currentTime;
+        switch (priorityLevel) {
+          case 1:
+            var timeout = -1;
+            break;
+          case 2:
+            timeout = 250;
+            break;
+          case 5:
+            timeout = 1073741823;
+            break;
+          case 4:
+            timeout = 1e4;
+            break;
+          default:
+            timeout = 5e3;
+        }
+        timeout = options + timeout;
+        priorityLevel = {
+          id: taskIdCounter++,
+          callback,
+          priorityLevel,
+          startTime: options,
+          expirationTime: timeout,
+          sortIndex: -1
+        };
+        options > currentTime ? (priorityLevel.sortIndex = options, push(timerQueue, priorityLevel), null === peek(taskQueue) && priorityLevel === peek(timerQueue) && (isHostTimeoutScheduled ? (localClearTimeout(taskTimeoutID), taskTimeoutID = -1) : isHostTimeoutScheduled = true, requestHostTimeout(handleTimeout, options - currentTime))) : (priorityLevel.sortIndex = timeout, push(taskQueue, priorityLevel), isHostCallbackScheduled || isPerformingWork || (isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline())));
+        return priorityLevel;
+      };
+      exports.unstable_shouldYield = shouldYieldToHost;
+      exports.unstable_wrapCallback = function(callback) {
+        var parentPriorityLevel = currentPriorityLevel;
+        return function() {
+          var previousPriorityLevel = currentPriorityLevel;
+          currentPriorityLevel = parentPriorityLevel;
+          try {
+            return callback.apply(this, arguments);
+          } finally {
+            currentPriorityLevel = previousPriorityLevel;
+          }
+        };
+      };
+    }
+  });
+
+  // node_modules/scheduler/index.js
+  var require_scheduler = __commonJS({
+    "node_modules/scheduler/index.js"(exports, module) {
+      "use strict";
+      if (true) {
+        module.exports = require_scheduler_production();
+      } else {
+        module.exports = null;
+      }
+    }
+  });
+
   // node_modules/react/cjs/react.production.js
   var require_react_production = __commonJS({
     "node_modules/react/cjs/react.production.js"(exports) {
@@ -478,296 +763,11 @@
     }
   });
 
-  // node_modules/scheduler/cjs/scheduler.production.js
-  var require_scheduler_production = __commonJS({
-    "node_modules/scheduler/cjs/scheduler.production.js"(exports) {
-      "use strict";
-      function push(heap, node) {
-        var index = heap.length;
-        heap.push(node);
-        a: for (; 0 < index; ) {
-          var parentIndex = index - 1 >>> 1, parent = heap[parentIndex];
-          if (0 < compare(parent, node))
-            heap[parentIndex] = node, heap[index] = parent, index = parentIndex;
-          else break a;
-        }
-      }
-      function peek(heap) {
-        return 0 === heap.length ? null : heap[0];
-      }
-      function pop(heap) {
-        if (0 === heap.length) return null;
-        var first = heap[0], last = heap.pop();
-        if (last !== first) {
-          heap[0] = last;
-          a: for (var index = 0, length = heap.length, halfLength = length >>> 1; index < halfLength; ) {
-            var leftIndex = 2 * (index + 1) - 1, left = heap[leftIndex], rightIndex = leftIndex + 1, right = heap[rightIndex];
-            if (0 > compare(left, last))
-              rightIndex < length && 0 > compare(right, left) ? (heap[index] = right, heap[rightIndex] = last, index = rightIndex) : (heap[index] = left, heap[leftIndex] = last, index = leftIndex);
-            else if (rightIndex < length && 0 > compare(right, last))
-              heap[index] = right, heap[rightIndex] = last, index = rightIndex;
-            else break a;
-          }
-        }
-        return first;
-      }
-      function compare(a, b) {
-        var diff = a.sortIndex - b.sortIndex;
-        return 0 !== diff ? diff : a.id - b.id;
-      }
-      exports.unstable_now = void 0;
-      if ("object" === typeof performance && "function" === typeof performance.now) {
-        localPerformance = performance;
-        exports.unstable_now = function() {
-          return localPerformance.now();
-        };
-      } else {
-        localDate = Date, initialTime = localDate.now();
-        exports.unstable_now = function() {
-          return localDate.now() - initialTime;
-        };
-      }
-      var localPerformance;
-      var localDate;
-      var initialTime;
-      var taskQueue = [];
-      var timerQueue = [];
-      var taskIdCounter = 1;
-      var currentTask = null;
-      var currentPriorityLevel = 3;
-      var isPerformingWork = false;
-      var isHostCallbackScheduled = false;
-      var isHostTimeoutScheduled = false;
-      var needsPaint = false;
-      var localSetTimeout = "function" === typeof setTimeout ? setTimeout : null;
-      var localClearTimeout = "function" === typeof clearTimeout ? clearTimeout : null;
-      var localSetImmediate = "undefined" !== typeof setImmediate ? setImmediate : null;
-      function advanceTimers(currentTime) {
-        for (var timer = peek(timerQueue); null !== timer; ) {
-          if (null === timer.callback) pop(timerQueue);
-          else if (timer.startTime <= currentTime)
-            pop(timerQueue), timer.sortIndex = timer.expirationTime, push(taskQueue, timer);
-          else break;
-          timer = peek(timerQueue);
-        }
-      }
-      function handleTimeout(currentTime) {
-        isHostTimeoutScheduled = false;
-        advanceTimers(currentTime);
-        if (!isHostCallbackScheduled)
-          if (null !== peek(taskQueue))
-            isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline());
-          else {
-            var firstTimer = peek(timerQueue);
-            null !== firstTimer && requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
-          }
-      }
-      var isMessageLoopRunning = false;
-      var taskTimeoutID = -1;
-      var frameInterval = 5;
-      var startTime = -1;
-      function shouldYieldToHost() {
-        return needsPaint ? true : exports.unstable_now() - startTime < frameInterval ? false : true;
-      }
-      function performWorkUntilDeadline() {
-        needsPaint = false;
-        if (isMessageLoopRunning) {
-          var currentTime = exports.unstable_now();
-          startTime = currentTime;
-          var hasMoreWork = true;
-          try {
-            a: {
-              isHostCallbackScheduled = false;
-              isHostTimeoutScheduled && (isHostTimeoutScheduled = false, localClearTimeout(taskTimeoutID), taskTimeoutID = -1);
-              isPerformingWork = true;
-              var previousPriorityLevel = currentPriorityLevel;
-              try {
-                b: {
-                  advanceTimers(currentTime);
-                  for (currentTask = peek(taskQueue); null !== currentTask && !(currentTask.expirationTime > currentTime && shouldYieldToHost()); ) {
-                    var callback = currentTask.callback;
-                    if ("function" === typeof callback) {
-                      currentTask.callback = null;
-                      currentPriorityLevel = currentTask.priorityLevel;
-                      var continuationCallback = callback(
-                        currentTask.expirationTime <= currentTime
-                      );
-                      currentTime = exports.unstable_now();
-                      if ("function" === typeof continuationCallback) {
-                        currentTask.callback = continuationCallback;
-                        advanceTimers(currentTime);
-                        hasMoreWork = true;
-                        break b;
-                      }
-                      currentTask === peek(taskQueue) && pop(taskQueue);
-                      advanceTimers(currentTime);
-                    } else pop(taskQueue);
-                    currentTask = peek(taskQueue);
-                  }
-                  if (null !== currentTask) hasMoreWork = true;
-                  else {
-                    var firstTimer = peek(timerQueue);
-                    null !== firstTimer && requestHostTimeout(
-                      handleTimeout,
-                      firstTimer.startTime - currentTime
-                    );
-                    hasMoreWork = false;
-                  }
-                }
-                break a;
-              } finally {
-                currentTask = null, currentPriorityLevel = previousPriorityLevel, isPerformingWork = false;
-              }
-              hasMoreWork = void 0;
-            }
-          } finally {
-            hasMoreWork ? schedulePerformWorkUntilDeadline() : isMessageLoopRunning = false;
-          }
-        }
-      }
-      var schedulePerformWorkUntilDeadline;
-      if ("function" === typeof localSetImmediate)
-        schedulePerformWorkUntilDeadline = function() {
-          localSetImmediate(performWorkUntilDeadline);
-        };
-      else if ("undefined" !== typeof MessageChannel) {
-        channel = new MessageChannel(), port = channel.port2;
-        channel.port1.onmessage = performWorkUntilDeadline;
-        schedulePerformWorkUntilDeadline = function() {
-          port.postMessage(null);
-        };
-      } else
-        schedulePerformWorkUntilDeadline = function() {
-          localSetTimeout(performWorkUntilDeadline, 0);
-        };
-      var channel;
-      var port;
-      function requestHostTimeout(callback, ms) {
-        taskTimeoutID = localSetTimeout(function() {
-          callback(exports.unstable_now());
-        }, ms);
-      }
-      exports.unstable_IdlePriority = 5;
-      exports.unstable_ImmediatePriority = 1;
-      exports.unstable_LowPriority = 4;
-      exports.unstable_NormalPriority = 3;
-      exports.unstable_Profiling = null;
-      exports.unstable_UserBlockingPriority = 2;
-      exports.unstable_cancelCallback = function(task) {
-        task.callback = null;
-      };
-      exports.unstable_forceFrameRate = function(fps) {
-        0 > fps || 125 < fps ? console.error(
-          "forceFrameRate takes a positive int between 0 and 125, forcing frame rates higher than 125 fps is not supported"
-        ) : frameInterval = 0 < fps ? Math.floor(1e3 / fps) : 5;
-      };
-      exports.unstable_getCurrentPriorityLevel = function() {
-        return currentPriorityLevel;
-      };
-      exports.unstable_next = function(eventHandler) {
-        switch (currentPriorityLevel) {
-          case 1:
-          case 2:
-          case 3:
-            var priorityLevel = 3;
-            break;
-          default:
-            priorityLevel = currentPriorityLevel;
-        }
-        var previousPriorityLevel = currentPriorityLevel;
-        currentPriorityLevel = priorityLevel;
-        try {
-          return eventHandler();
-        } finally {
-          currentPriorityLevel = previousPriorityLevel;
-        }
-      };
-      exports.unstable_requestPaint = function() {
-        needsPaint = true;
-      };
-      exports.unstable_runWithPriority = function(priorityLevel, eventHandler) {
-        switch (priorityLevel) {
-          case 1:
-          case 2:
-          case 3:
-          case 4:
-          case 5:
-            break;
-          default:
-            priorityLevel = 3;
-        }
-        var previousPriorityLevel = currentPriorityLevel;
-        currentPriorityLevel = priorityLevel;
-        try {
-          return eventHandler();
-        } finally {
-          currentPriorityLevel = previousPriorityLevel;
-        }
-      };
-      exports.unstable_scheduleCallback = function(priorityLevel, callback, options) {
-        var currentTime = exports.unstable_now();
-        "object" === typeof options && null !== options ? (options = options.delay, options = "number" === typeof options && 0 < options ? currentTime + options : currentTime) : options = currentTime;
-        switch (priorityLevel) {
-          case 1:
-            var timeout = -1;
-            break;
-          case 2:
-            timeout = 250;
-            break;
-          case 5:
-            timeout = 1073741823;
-            break;
-          case 4:
-            timeout = 1e4;
-            break;
-          default:
-            timeout = 5e3;
-        }
-        timeout = options + timeout;
-        priorityLevel = {
-          id: taskIdCounter++,
-          callback,
-          priorityLevel,
-          startTime: options,
-          expirationTime: timeout,
-          sortIndex: -1
-        };
-        options > currentTime ? (priorityLevel.sortIndex = options, push(timerQueue, priorityLevel), null === peek(taskQueue) && priorityLevel === peek(timerQueue) && (isHostTimeoutScheduled ? (localClearTimeout(taskTimeoutID), taskTimeoutID = -1) : isHostTimeoutScheduled = true, requestHostTimeout(handleTimeout, options - currentTime))) : (priorityLevel.sortIndex = timeout, push(taskQueue, priorityLevel), isHostCallbackScheduled || isPerformingWork || (isHostCallbackScheduled = true, isMessageLoopRunning || (isMessageLoopRunning = true, schedulePerformWorkUntilDeadline())));
-        return priorityLevel;
-      };
-      exports.unstable_shouldYield = shouldYieldToHost;
-      exports.unstable_wrapCallback = function(callback) {
-        var parentPriorityLevel = currentPriorityLevel;
-        return function() {
-          var previousPriorityLevel = currentPriorityLevel;
-          currentPriorityLevel = parentPriorityLevel;
-          try {
-            return callback.apply(this, arguments);
-          } finally {
-            currentPriorityLevel = previousPriorityLevel;
-          }
-        };
-      };
-    }
-  });
-
-  // node_modules/scheduler/index.js
-  var require_scheduler = __commonJS({
-    "node_modules/scheduler/index.js"(exports, module) {
-      "use strict";
-      if (true) {
-        module.exports = require_scheduler_production();
-      } else {
-        module.exports = null;
-      }
-    }
-  });
-
   // node_modules/react-dom/cjs/react-dom.production.js
   var require_react_dom_production = __commonJS({
     "node_modules/react-dom/cjs/react-dom.production.js"(exports) {
       "use strict";
-      var React = require_react();
+      var React2 = require_react();
       function formatProdErrorMessage(code) {
         var url = "https://react.dev/errors/" + code;
         if (1 < arguments.length) {
@@ -807,7 +807,7 @@
           implementation
         };
       }
-      var ReactSharedInternals = React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+      var ReactSharedInternals = React2.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
       function getCrossOriginStringAs(as, input) {
         if ("font" === as) return "";
         if ("string" === typeof input)
@@ -943,7 +943,7 @@
     "node_modules/react-dom/cjs/react-dom-client.production.js"(exports) {
       "use strict";
       var Scheduler = require_scheduler();
-      var React = require_react();
+      var React2 = require_react();
       var ReactDOM = require_react_dom();
       function formatProdErrorMessage(code) {
         var url = "https://react.dev/errors/" + code;
@@ -1134,7 +1134,7 @@
         return null;
       }
       var isArrayImpl = Array.isArray;
-      var ReactSharedInternals = React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+      var ReactSharedInternals = React2.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
       var ReactDOMSharedInternals = ReactDOM.__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
       var sharedNotPendingObject = {
         pending: false,
@@ -1430,17 +1430,17 @@
             return lanes;
         }
       }
-      function getNextLanes(root2, wipLanes, rootHasPendingCommit) {
-        var pendingLanes = root2.pendingLanes;
+      function getNextLanes(root3, wipLanes, rootHasPendingCommit) {
+        var pendingLanes = root3.pendingLanes;
         if (0 === pendingLanes) return 0;
-        var nextLanes = 0, suspendedLanes = root2.suspendedLanes, pingedLanes = root2.pingedLanes;
-        root2 = root2.warmLanes;
+        var nextLanes = 0, suspendedLanes = root3.suspendedLanes, pingedLanes = root3.pingedLanes;
+        root3 = root3.warmLanes;
         var nonIdlePendingLanes = pendingLanes & 134217727;
-        0 !== nonIdlePendingLanes ? (pendingLanes = nonIdlePendingLanes & ~suspendedLanes, 0 !== pendingLanes ? nextLanes = getHighestPriorityLanes(pendingLanes) : (pingedLanes &= nonIdlePendingLanes, 0 !== pingedLanes ? nextLanes = getHighestPriorityLanes(pingedLanes) : rootHasPendingCommit || (rootHasPendingCommit = nonIdlePendingLanes & ~root2, 0 !== rootHasPendingCommit && (nextLanes = getHighestPriorityLanes(rootHasPendingCommit))))) : (nonIdlePendingLanes = pendingLanes & ~suspendedLanes, 0 !== nonIdlePendingLanes ? nextLanes = getHighestPriorityLanes(nonIdlePendingLanes) : 0 !== pingedLanes ? nextLanes = getHighestPriorityLanes(pingedLanes) : rootHasPendingCommit || (rootHasPendingCommit = pendingLanes & ~root2, 0 !== rootHasPendingCommit && (nextLanes = getHighestPriorityLanes(rootHasPendingCommit))));
+        0 !== nonIdlePendingLanes ? (pendingLanes = nonIdlePendingLanes & ~suspendedLanes, 0 !== pendingLanes ? nextLanes = getHighestPriorityLanes(pendingLanes) : (pingedLanes &= nonIdlePendingLanes, 0 !== pingedLanes ? nextLanes = getHighestPriorityLanes(pingedLanes) : rootHasPendingCommit || (rootHasPendingCommit = nonIdlePendingLanes & ~root3, 0 !== rootHasPendingCommit && (nextLanes = getHighestPriorityLanes(rootHasPendingCommit))))) : (nonIdlePendingLanes = pendingLanes & ~suspendedLanes, 0 !== nonIdlePendingLanes ? nextLanes = getHighestPriorityLanes(nonIdlePendingLanes) : 0 !== pingedLanes ? nextLanes = getHighestPriorityLanes(pingedLanes) : rootHasPendingCommit || (rootHasPendingCommit = pendingLanes & ~root3, 0 !== rootHasPendingCommit && (nextLanes = getHighestPriorityLanes(rootHasPendingCommit))));
         return 0 === nextLanes ? 0 : 0 !== wipLanes && wipLanes !== nextLanes && 0 === (wipLanes & suspendedLanes) && (suspendedLanes = nextLanes & -nextLanes, rootHasPendingCommit = wipLanes & -wipLanes, suspendedLanes >= rootHasPendingCommit || 32 === suspendedLanes && 0 !== (rootHasPendingCommit & 4194048)) ? wipLanes : nextLanes;
       }
-      function checkIfRootIsPrerendering(root2, renderLanes2) {
-        return 0 === (root2.pendingLanes & ~(root2.suspendedLanes & ~root2.pingedLanes) & renderLanes2);
+      function checkIfRootIsPrerendering(root3, renderLanes2) {
+        return 0 === (root3.pendingLanes & ~(root3.suspendedLanes & ~root3.pingedLanes) & renderLanes2);
       }
       function computeExpirationTime(lane, currentTime) {
         switch (lane) {
@@ -1493,21 +1493,21 @@
         for (var laneMap = [], i = 0; 31 > i; i++) laneMap.push(initial);
         return laneMap;
       }
-      function markRootUpdated$1(root2, updateLane) {
-        root2.pendingLanes |= updateLane;
-        268435456 !== updateLane && (root2.suspendedLanes = 0, root2.pingedLanes = 0, root2.warmLanes = 0);
+      function markRootUpdated$1(root3, updateLane) {
+        root3.pendingLanes |= updateLane;
+        268435456 !== updateLane && (root3.suspendedLanes = 0, root3.pingedLanes = 0, root3.warmLanes = 0);
       }
-      function markRootFinished(root2, finishedLanes, remainingLanes, spawnedLane, updatedLanes, suspendedRetryLanes) {
-        var previouslyPendingLanes = root2.pendingLanes;
-        root2.pendingLanes = remainingLanes;
-        root2.suspendedLanes = 0;
-        root2.pingedLanes = 0;
-        root2.warmLanes = 0;
-        root2.expiredLanes &= remainingLanes;
-        root2.entangledLanes &= remainingLanes;
-        root2.errorRecoveryDisabledLanes &= remainingLanes;
-        root2.shellSuspendCounter = 0;
-        var entanglements = root2.entanglements, expirationTimes = root2.expirationTimes, hiddenUpdates = root2.hiddenUpdates;
+      function markRootFinished(root3, finishedLanes, remainingLanes, spawnedLane, updatedLanes, suspendedRetryLanes) {
+        var previouslyPendingLanes = root3.pendingLanes;
+        root3.pendingLanes = remainingLanes;
+        root3.suspendedLanes = 0;
+        root3.pingedLanes = 0;
+        root3.warmLanes = 0;
+        root3.expiredLanes &= remainingLanes;
+        root3.entangledLanes &= remainingLanes;
+        root3.errorRecoveryDisabledLanes &= remainingLanes;
+        root3.shellSuspendCounter = 0;
+        var entanglements = root3.entanglements, expirationTimes = root3.expirationTimes, hiddenUpdates = root3.hiddenUpdates;
         for (remainingLanes = previouslyPendingLanes & ~remainingLanes; 0 < remainingLanes; ) {
           var index$7 = 31 - clz32(remainingLanes), lane = 1 << index$7;
           entanglements[index$7] = 0;
@@ -1520,28 +1520,28 @@
             }
           remainingLanes &= ~lane;
         }
-        0 !== spawnedLane && markSpawnedDeferredLane(root2, spawnedLane, 0);
-        0 !== suspendedRetryLanes && 0 === updatedLanes && 0 !== root2.tag && (root2.suspendedLanes |= suspendedRetryLanes & ~(previouslyPendingLanes & ~finishedLanes));
+        0 !== spawnedLane && markSpawnedDeferredLane(root3, spawnedLane, 0);
+        0 !== suspendedRetryLanes && 0 === updatedLanes && 0 !== root3.tag && (root3.suspendedLanes |= suspendedRetryLanes & ~(previouslyPendingLanes & ~finishedLanes));
       }
-      function markSpawnedDeferredLane(root2, spawnedLane, entangledLanes) {
-        root2.pendingLanes |= spawnedLane;
-        root2.suspendedLanes &= ~spawnedLane;
+      function markSpawnedDeferredLane(root3, spawnedLane, entangledLanes) {
+        root3.pendingLanes |= spawnedLane;
+        root3.suspendedLanes &= ~spawnedLane;
         var spawnedLaneIndex = 31 - clz32(spawnedLane);
-        root2.entangledLanes |= spawnedLane;
-        root2.entanglements[spawnedLaneIndex] = root2.entanglements[spawnedLaneIndex] | 1073741824 | entangledLanes & 261930;
+        root3.entangledLanes |= spawnedLane;
+        root3.entanglements[spawnedLaneIndex] = root3.entanglements[spawnedLaneIndex] | 1073741824 | entangledLanes & 261930;
       }
-      function markRootEntangled(root2, entangledLanes) {
-        var rootEntangledLanes = root2.entangledLanes |= entangledLanes;
-        for (root2 = root2.entanglements; rootEntangledLanes; ) {
+      function markRootEntangled(root3, entangledLanes) {
+        var rootEntangledLanes = root3.entangledLanes |= entangledLanes;
+        for (root3 = root3.entanglements; rootEntangledLanes; ) {
           var index$8 = 31 - clz32(rootEntangledLanes), lane = 1 << index$8;
-          lane & entangledLanes | root2[index$8] & entangledLanes && (root2[index$8] |= entangledLanes);
+          lane & entangledLanes | root3[index$8] & entangledLanes && (root3[index$8] |= entangledLanes);
           rootEntangledLanes &= ~lane;
         }
       }
-      function getBumpedLaneForHydration(root2, renderLanes2) {
+      function getBumpedLaneForHydration(root3, renderLanes2) {
         var renderLane = renderLanes2 & -renderLanes2;
         renderLane = 0 !== (renderLane & 42) ? 1 : getBumpedLaneForHydrationByLane(renderLane);
-        return 0 !== (renderLane & (root2.suspendedLanes | renderLanes2)) ? 0 : renderLane;
+        return 0 !== (renderLane & (root3.suspendedLanes | renderLanes2)) ? 0 : renderLane;
       }
       function getBumpedLaneForHydrationByLane(lane) {
         switch (lane) {
@@ -1647,9 +1647,9 @@
         if (5 === tag || 26 === tag || 27 === tag || 6 === tag) return inst.stateNode;
         throw Error(formatProdErrorMessage(33));
       }
-      function getResourcesFromRoot(root2) {
-        var resources = root2[internalRootNodeResourcesKey];
-        resources || (resources = root2[internalRootNodeResourcesKey] = { hoistableStyles: /* @__PURE__ */ new Map(), hoistableScripts: /* @__PURE__ */ new Map() });
+      function getResourcesFromRoot(root3) {
+        var resources = root3[internalRootNodeResourcesKey];
+        resources || (resources = root3[internalRootNodeResourcesKey] = { hoistableStyles: /* @__PURE__ */ new Map(), hoistableScripts: /* @__PURE__ */ new Map() });
         return resources;
       }
       function markNodeAsHoistable(node) {
@@ -2160,12 +2160,12 @@
           passiveBrowserEventsSupported = false;
         }
       var options;
-      var root = null;
+      var root2 = null;
       var startText = null;
       var fallbackText = null;
       function getData() {
         if (fallbackText) return fallbackText;
-        var start, startValue = startText, startLength = startValue.length, end, endValue = "value" in root ? root.value : root.textContent, endLength = endValue.length;
+        var start, startValue = startText, startLength = startValue.length, end, endValue = "value" in root2 ? root2.value : root2.textContent, endLength = endValue.length;
         for (start = 0; start < startLength && startValue[start] === endValue[start]; start++) ;
         var minEnd = startLength - start;
         for (end = 1; end <= minEnd && startValue[startLength - end] === endValue[endLength - end]; end++) ;
@@ -2456,7 +2456,7 @@
       }
       function getFallbackBeforeInputChars(domEventName, nativeEvent) {
         if (isComposing)
-          return "compositionend" === domEventName || !canUseCompositionEvent && isFallbackCompositionEnd(domEventName, nativeEvent) ? (domEventName = getData(), fallbackText = startText = root = null, isComposing = false, domEventName) : null;
+          return "compositionend" === domEventName || !canUseCompositionEvent && isFallbackCompositionEnd(domEventName, nativeEvent) ? (domEventName = getData(), fallbackText = startText = root2 = null, isComposing = false, domEventName) : null;
         switch (domEventName) {
           case "paste":
             return null;
@@ -2583,15 +2583,15 @@
         for (; node && node.firstChild; ) node = node.firstChild;
         return node;
       }
-      function getNodeForCharacterOffset(root2, offset) {
-        var node = getLeafNode(root2);
-        root2 = 0;
+      function getNodeForCharacterOffset(root3, offset) {
+        var node = getLeafNode(root3);
+        root3 = 0;
         for (var nodeEnd; node; ) {
           if (3 === node.nodeType) {
-            nodeEnd = root2 + node.textContent.length;
-            if (root2 <= offset && nodeEnd >= offset)
-              return { node, offset: offset - root2 };
-            root2 = nodeEnd;
+            nodeEnd = root3 + node.textContent.length;
+            if (root3 <= offset && nodeEnd >= offset)
+              return { node, offset: offset - root3 };
+            root3 = nodeEnd;
           }
           a: {
             for (; node; ) {
@@ -3921,14 +3921,14 @@
         enqueueUpdate$1(fiber, updateQueue, update, lane);
         return getRootForUpdatedFiber(fiber);
       }
-      function entangleTransitions(root2, fiber, lane) {
+      function entangleTransitions(root3, fiber, lane) {
         fiber = fiber.updateQueue;
         if (null !== fiber && (fiber = fiber.shared, 0 !== (lane & 4194048))) {
           var queueLanes = fiber.lanes;
-          queueLanes &= root2.pendingLanes;
+          queueLanes &= root3.pendingLanes;
           lane |= queueLanes;
           fiber.lanes = lane;
-          markRootEntangled(root2, lane);
+          markRootEntangled(root3, lane);
         }
       }
       function enqueueCapturedUpdate(workInProgress2, capturedUpdate) {
@@ -4471,8 +4471,8 @@
         }
       }
       function forceStoreRerender(fiber) {
-        var root2 = enqueueConcurrentRenderForLane(fiber, 2);
-        null !== root2 && scheduleUpdateOnFiber(root2, fiber, 2);
+        var root3 = enqueueConcurrentRenderForLane(fiber, 2);
+        null !== root3 && scheduleUpdateOnFiber(root3, fiber, 2);
       }
       function mountStateImpl(initialState) {
         var hook = mountWorkInProgressHook();
@@ -5041,13 +5041,13 @@
         null === pending ? update.next = update : (update.next = pending.next, pending.next = update);
         queue.pending = update;
       }
-      function entangleTransitionUpdate(root2, queue, lane) {
+      function entangleTransitionUpdate(root3, queue, lane) {
         if (0 !== (lane & 4194048)) {
           var queueLanes = queue.lanes;
-          queueLanes &= root2.pendingLanes;
+          queueLanes &= root3.pendingLanes;
           lane |= queueLanes;
           queue.lanes = lane;
-          markRootEntangled(root2, lane);
+          markRootEntangled(root3, lane);
         }
       }
       var ContextOnlyDispatcher = {
@@ -5422,9 +5422,9 @@
       function defaultOnRecoverableError(error) {
         reportGlobalError(error);
       }
-      function logUncaughtError(root2, errorInfo) {
+      function logUncaughtError(root3, errorInfo) {
         try {
-          var onUncaughtError = root2.onUncaughtError;
+          var onUncaughtError = root3.onUncaughtError;
           onUncaughtError(errorInfo.value, { componentStack: errorInfo.stack });
         } catch (e$74) {
           setTimeout(function() {
@@ -5432,9 +5432,9 @@
           });
         }
       }
-      function logCaughtError(root2, boundary, errorInfo) {
+      function logCaughtError(root3, boundary, errorInfo) {
         try {
-          var onCaughtError = root2.onCaughtError;
+          var onCaughtError = root3.onCaughtError;
           onCaughtError(errorInfo.value, {
             componentStack: errorInfo.stack,
             errorBoundary: 1 === boundary.tag ? boundary.stateNode : null
@@ -5445,12 +5445,12 @@
           });
         }
       }
-      function createRootErrorUpdate(root2, errorInfo, lane) {
+      function createRootErrorUpdate(root3, errorInfo, lane) {
         lane = createUpdate(lane);
         lane.tag = 3;
         lane.payload = { element: null };
         lane.callback = function() {
-          logUncaughtError(root2, errorInfo);
+          logUncaughtError(root3, errorInfo);
         };
         return lane;
       }
@@ -5459,7 +5459,7 @@
         lane.tag = 3;
         return lane;
       }
-      function initializeClassErrorUpdate(update, root2, fiber, errorInfo) {
+      function initializeClassErrorUpdate(update, root3, fiber, errorInfo) {
         var getDerivedStateFromError = fiber.type.getDerivedStateFromError;
         if ("function" === typeof getDerivedStateFromError) {
           var error = errorInfo.value;
@@ -5467,12 +5467,12 @@
             return getDerivedStateFromError(error);
           };
           update.callback = function() {
-            logCaughtError(root2, fiber, errorInfo);
+            logCaughtError(root3, fiber, errorInfo);
           };
         }
         var inst = fiber.stateNode;
         null !== inst && "function" === typeof inst.componentDidCatch && (update.callback = function() {
-          logCaughtError(root2, fiber, errorInfo);
+          logCaughtError(root3, fiber, errorInfo);
           "function" !== typeof getDerivedStateFromError && (null === legacyErrorBoundariesThatAlreadyFailed ? legacyErrorBoundariesThatAlreadyFailed = /* @__PURE__ */ new Set([this]) : legacyErrorBoundariesThatAlreadyFailed.add(this));
           var stack = errorInfo.stack;
           this.componentDidCatch(errorInfo.value, {
@@ -5480,7 +5480,7 @@
           });
         });
       }
-      function throwException(root2, returnFiber, sourceFiber, value, rootRenderLanes) {
+      function throwException(root3, returnFiber, sourceFiber, value, rootRenderLanes) {
         sourceFiber.flags |= 32768;
         if (null !== value && "object" === typeof value && "function" === typeof value.then) {
           returnFiber = sourceFiber.alternate;
@@ -5495,30 +5495,30 @@
             switch (sourceFiber.tag) {
               case 31:
               case 13:
-                return null === shellBoundary ? renderDidSuspendDelayIfPossible() : null === sourceFiber.alternate && 0 === workInProgressRootExitStatus && (workInProgressRootExitStatus = 3), sourceFiber.flags &= -257, sourceFiber.flags |= 65536, sourceFiber.lanes = rootRenderLanes, value === noopSuspenseyCommitThenable ? sourceFiber.flags |= 16384 : (returnFiber = sourceFiber.updateQueue, null === returnFiber ? sourceFiber.updateQueue = /* @__PURE__ */ new Set([value]) : returnFiber.add(value), attachPingListener(root2, value, rootRenderLanes)), false;
+                return null === shellBoundary ? renderDidSuspendDelayIfPossible() : null === sourceFiber.alternate && 0 === workInProgressRootExitStatus && (workInProgressRootExitStatus = 3), sourceFiber.flags &= -257, sourceFiber.flags |= 65536, sourceFiber.lanes = rootRenderLanes, value === noopSuspenseyCommitThenable ? sourceFiber.flags |= 16384 : (returnFiber = sourceFiber.updateQueue, null === returnFiber ? sourceFiber.updateQueue = /* @__PURE__ */ new Set([value]) : returnFiber.add(value), attachPingListener(root3, value, rootRenderLanes)), false;
               case 22:
                 return sourceFiber.flags |= 65536, value === noopSuspenseyCommitThenable ? sourceFiber.flags |= 16384 : (returnFiber = sourceFiber.updateQueue, null === returnFiber ? (returnFiber = {
                   transitions: null,
                   markerInstances: null,
                   retryQueue: /* @__PURE__ */ new Set([value])
-                }, sourceFiber.updateQueue = returnFiber) : (sourceFiber = returnFiber.retryQueue, null === sourceFiber ? returnFiber.retryQueue = /* @__PURE__ */ new Set([value]) : sourceFiber.add(value)), attachPingListener(root2, value, rootRenderLanes)), false;
+                }, sourceFiber.updateQueue = returnFiber) : (sourceFiber = returnFiber.retryQueue, null === sourceFiber ? returnFiber.retryQueue = /* @__PURE__ */ new Set([value]) : sourceFiber.add(value)), attachPingListener(root3, value, rootRenderLanes)), false;
             }
             throw Error(formatProdErrorMessage(435, sourceFiber.tag));
           }
-          attachPingListener(root2, value, rootRenderLanes);
+          attachPingListener(root3, value, rootRenderLanes);
           renderDidSuspendDelayIfPossible();
           return false;
         }
         if (isHydrating)
-          return returnFiber = suspenseHandlerStackCursor.current, null !== returnFiber ? (0 === (returnFiber.flags & 65536) && (returnFiber.flags |= 256), returnFiber.flags |= 65536, returnFiber.lanes = rootRenderLanes, value !== HydrationMismatchException && (root2 = Error(formatProdErrorMessage(422), { cause: value }), queueHydrationError(createCapturedValueAtFiber(root2, sourceFiber)))) : (value !== HydrationMismatchException && (returnFiber = Error(formatProdErrorMessage(423), {
+          return returnFiber = suspenseHandlerStackCursor.current, null !== returnFiber ? (0 === (returnFiber.flags & 65536) && (returnFiber.flags |= 256), returnFiber.flags |= 65536, returnFiber.lanes = rootRenderLanes, value !== HydrationMismatchException && (root3 = Error(formatProdErrorMessage(422), { cause: value }), queueHydrationError(createCapturedValueAtFiber(root3, sourceFiber)))) : (value !== HydrationMismatchException && (returnFiber = Error(formatProdErrorMessage(423), {
             cause: value
           }), queueHydrationError(
             createCapturedValueAtFiber(returnFiber, sourceFiber)
-          )), root2 = root2.current.alternate, root2.flags |= 65536, rootRenderLanes &= -rootRenderLanes, root2.lanes |= rootRenderLanes, value = createCapturedValueAtFiber(value, sourceFiber), rootRenderLanes = createRootErrorUpdate(
-            root2.stateNode,
+          )), root3 = root3.current.alternate, root3.flags |= 65536, rootRenderLanes &= -rootRenderLanes, root3.lanes |= rootRenderLanes, value = createCapturedValueAtFiber(value, sourceFiber), rootRenderLanes = createRootErrorUpdate(
+            root3.stateNode,
             value,
             rootRenderLanes
-          ), enqueueCapturedUpdate(root2, rootRenderLanes), 4 !== workInProgressRootExitStatus && (workInProgressRootExitStatus = 2)), false;
+          ), enqueueCapturedUpdate(root3, rootRenderLanes), 4 !== workInProgressRootExitStatus && (workInProgressRootExitStatus = 2)), false;
         var wrapperError = Error(formatProdErrorMessage(520), { cause: value });
         wrapperError = createCapturedValueAtFiber(wrapperError, sourceFiber);
         null === workInProgressRootConcurrentErrors ? workInProgressRootConcurrentErrors = [wrapperError] : workInProgressRootConcurrentErrors.push(wrapperError);
@@ -5529,12 +5529,12 @@
         do {
           switch (sourceFiber.tag) {
             case 3:
-              return sourceFiber.flags |= 65536, root2 = rootRenderLanes & -rootRenderLanes, sourceFiber.lanes |= root2, root2 = createRootErrorUpdate(sourceFiber.stateNode, value, root2), enqueueCapturedUpdate(sourceFiber, root2), false;
+              return sourceFiber.flags |= 65536, root3 = rootRenderLanes & -rootRenderLanes, sourceFiber.lanes |= root3, root3 = createRootErrorUpdate(sourceFiber.stateNode, value, root3), enqueueCapturedUpdate(sourceFiber, root3), false;
             case 1:
               if (returnFiber = sourceFiber.type, wrapperError = sourceFiber.stateNode, 0 === (sourceFiber.flags & 128) && ("function" === typeof returnFiber.getDerivedStateFromError || null !== wrapperError && "function" === typeof wrapperError.componentDidCatch && (null === legacyErrorBoundariesThatAlreadyFailed || !legacyErrorBoundariesThatAlreadyFailed.has(wrapperError))))
                 return sourceFiber.flags |= 65536, rootRenderLanes &= -rootRenderLanes, sourceFiber.lanes |= rootRenderLanes, rootRenderLanes = createClassErrorUpdate(rootRenderLanes), initializeClassErrorUpdate(
                   rootRenderLanes,
-                  root2,
+                  root3,
                   sourceFiber,
                   value
                 ), enqueueCapturedUpdate(sourceFiber, rootRenderLanes), false;
@@ -7313,19 +7313,19 @@
       var needsFormReset = false;
       var PossiblyWeakSet = "function" === typeof WeakSet ? WeakSet : Set;
       var nextEffect = null;
-      function commitBeforeMutationEffects(root2, firstChild) {
-        root2 = root2.containerInfo;
+      function commitBeforeMutationEffects(root3, firstChild) {
+        root3 = root3.containerInfo;
         eventsEnabled = _enabled;
-        root2 = getActiveElementDeep(root2);
-        if (hasSelectionCapabilities(root2)) {
-          if ("selectionStart" in root2)
+        root3 = getActiveElementDeep(root3);
+        if (hasSelectionCapabilities(root3)) {
+          if ("selectionStart" in root3)
             var JSCompiler_temp = {
-              start: root2.selectionStart,
-              end: root2.selectionEnd
+              start: root3.selectionStart,
+              end: root3.selectionEnd
             };
           else
             a: {
-              JSCompiler_temp = (JSCompiler_temp = root2.ownerDocument) && JSCompiler_temp.defaultView || window;
+              JSCompiler_temp = (JSCompiler_temp = root3.ownerDocument) && JSCompiler_temp.defaultView || window;
               var selection = JSCompiler_temp.getSelection && JSCompiler_temp.getSelection();
               if (selection && 0 !== selection.rangeCount) {
                 JSCompiler_temp = selection.anchorNode;
@@ -7337,7 +7337,7 @@
                   JSCompiler_temp = null;
                   break a;
                 }
-                var length = 0, start = -1, end = -1, indexWithinAnchor = 0, indexWithinFocus = 0, node = root2, parentNode = null;
+                var length = 0, start = -1, end = -1, indexWithinAnchor = 0, indexWithinFocus = 0, node = root3, parentNode = null;
                 b: for (; ; ) {
                   for (var next; ; ) {
                     node !== JSCompiler_temp || 0 !== anchorOffset && 3 !== node.nodeType || (start = length + anchorOffset);
@@ -7348,7 +7348,7 @@
                     node = next;
                   }
                   for (; ; ) {
-                    if (node === root2) break b;
+                    if (node === root3) break b;
                     parentNode === JSCompiler_temp && ++indexWithinAnchor === anchorOffset && (start = length);
                     parentNode === focusNode && ++indexWithinFocus === selection && (end = length);
                     if (null !== (next = node.nextSibling)) break;
@@ -7362,28 +7362,28 @@
             }
           JSCompiler_temp = JSCompiler_temp || { start: 0, end: 0 };
         } else JSCompiler_temp = null;
-        selectionInformation = { focusedElem: root2, selectionRange: JSCompiler_temp };
+        selectionInformation = { focusedElem: root3, selectionRange: JSCompiler_temp };
         _enabled = false;
         for (nextEffect = firstChild; null !== nextEffect; )
-          if (firstChild = nextEffect, root2 = firstChild.child, 0 !== (firstChild.subtreeFlags & 1028) && null !== root2)
-            root2.return = firstChild, nextEffect = root2;
+          if (firstChild = nextEffect, root3 = firstChild.child, 0 !== (firstChild.subtreeFlags & 1028) && null !== root3)
+            root3.return = firstChild, nextEffect = root3;
           else
             for (; null !== nextEffect; ) {
               firstChild = nextEffect;
               focusNode = firstChild.alternate;
-              root2 = firstChild.flags;
+              root3 = firstChild.flags;
               switch (firstChild.tag) {
                 case 0:
-                  if (0 !== (root2 & 4) && (root2 = firstChild.updateQueue, root2 = null !== root2 ? root2.events : null, null !== root2))
-                    for (JSCompiler_temp = 0; JSCompiler_temp < root2.length; JSCompiler_temp++)
-                      anchorOffset = root2[JSCompiler_temp], anchorOffset.ref.impl = anchorOffset.nextImpl;
+                  if (0 !== (root3 & 4) && (root3 = firstChild.updateQueue, root3 = null !== root3 ? root3.events : null, null !== root3))
+                    for (JSCompiler_temp = 0; JSCompiler_temp < root3.length; JSCompiler_temp++)
+                      anchorOffset = root3[JSCompiler_temp], anchorOffset.ref.impl = anchorOffset.nextImpl;
                   break;
                 case 11:
                 case 15:
                   break;
                 case 1:
-                  if (0 !== (root2 & 1024) && null !== focusNode) {
-                    root2 = void 0;
+                  if (0 !== (root3 & 1024) && null !== focusNode) {
+                    root3 = void 0;
                     JSCompiler_temp = firstChild;
                     anchorOffset = focusNode.memoizedProps;
                     focusNode = focusNode.memoizedState;
@@ -7393,11 +7393,11 @@
                         JSCompiler_temp.type,
                         anchorOffset
                       );
-                      root2 = selection.getSnapshotBeforeUpdate(
+                      root3 = selection.getSnapshotBeforeUpdate(
                         resolvedPrevProps,
                         focusNode
                       );
-                      selection.__reactInternalSnapshotBeforeUpdate = root2;
+                      selection.__reactInternalSnapshotBeforeUpdate = root3;
                     } catch (error) {
                       captureCommitPhaseError(
                         JSCompiler_temp,
@@ -7408,18 +7408,18 @@
                   }
                   break;
                 case 3:
-                  if (0 !== (root2 & 1024)) {
-                    if (root2 = firstChild.stateNode.containerInfo, JSCompiler_temp = root2.nodeType, 9 === JSCompiler_temp)
-                      clearContainerSparingly(root2);
+                  if (0 !== (root3 & 1024)) {
+                    if (root3 = firstChild.stateNode.containerInfo, JSCompiler_temp = root3.nodeType, 9 === JSCompiler_temp)
+                      clearContainerSparingly(root3);
                     else if (1 === JSCompiler_temp)
-                      switch (root2.nodeName) {
+                      switch (root3.nodeName) {
                         case "HEAD":
                         case "HTML":
                         case "BODY":
-                          clearContainerSparingly(root2);
+                          clearContainerSparingly(root3);
                           break;
                         default:
-                          root2.textContent = "";
+                          root3.textContent = "";
                       }
                   }
                   break;
@@ -7431,12 +7431,12 @@
                 case 17:
                   break;
                 default:
-                  if (0 !== (root2 & 1024)) throw Error(formatProdErrorMessage(163));
+                  if (0 !== (root3 & 1024)) throw Error(formatProdErrorMessage(163));
               }
-              root2 = firstChild.sibling;
-              if (null !== root2) {
-                root2.return = firstChild.return;
-                nextEffect = root2;
+              root3 = firstChild.sibling;
+              if (null !== root3) {
+                root3.return = firstChild.return;
+                nextEffect = root3;
                 break;
               }
               nextEffect = firstChild.return;
@@ -7747,7 +7747,7 @@
         var deletions = parentFiber.deletions;
         if (null !== deletions)
           for (var i = 0; i < deletions.length; i++) {
-            var childToDelete = deletions[i], root2 = root$jscomp$0, returnFiber = parentFiber, parent = returnFiber;
+            var childToDelete = deletions[i], root3 = root$jscomp$0, returnFiber = parentFiber, parent = returnFiber;
             a: for (; null !== parent; ) {
               switch (parent.tag) {
                 case 27:
@@ -7770,11 +7770,11 @@
               parent = parent.return;
             }
             if (null === hostParent) throw Error(formatProdErrorMessage(160));
-            commitDeletionEffectsOnFiber(root2, returnFiber, childToDelete);
+            commitDeletionEffectsOnFiber(root3, returnFiber, childToDelete);
             hostParent = null;
             hostParentIsContainer = false;
-            root2 = childToDelete.alternate;
-            null !== root2 && (root2.return = null);
+            root3 = childToDelete.alternate;
+            null !== root3 && (root3.return = null);
             childToDelete.return = null;
           }
         if (parentFiber.subtreeFlags & 13886)
@@ -7782,26 +7782,26 @@
             commitMutationEffectsOnFiber(parentFiber, root$jscomp$0), parentFiber = parentFiber.sibling;
       }
       var currentHoistableRoot = null;
-      function commitMutationEffectsOnFiber(finishedWork, root2) {
+      function commitMutationEffectsOnFiber(finishedWork, root3) {
         var current = finishedWork.alternate, flags = finishedWork.flags;
         switch (finishedWork.tag) {
           case 0:
           case 11:
           case 14:
           case 15:
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             commitReconciliationEffects(finishedWork);
             flags & 4 && (commitHookEffectListUnmount(3, finishedWork, finishedWork.return), commitHookEffectListMount(3, finishedWork), commitHookEffectListUnmount(5, finishedWork, finishedWork.return));
             break;
           case 1:
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             commitReconciliationEffects(finishedWork);
             flags & 512 && (offscreenSubtreeWasHidden || null === current || safelyDetachRef(current, current.return));
             flags & 64 && offscreenSubtreeIsHidden && (finishedWork = finishedWork.updateQueue, null !== finishedWork && (flags = finishedWork.callbacks, null !== flags && (current = finishedWork.shared.hiddenCallbacks, finishedWork.shared.hiddenCallbacks = null === current ? flags : current.concat(flags))));
             break;
           case 26:
             var hoistableRoot = currentHoistableRoot;
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             commitReconciliationEffects(finishedWork);
             flags & 512 && (offscreenSubtreeWasHidden || null === current || safelyDetachRef(current, current.return));
             if (flags & 4) {
@@ -7897,7 +7897,7 @@
             }
             break;
           case 27:
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             commitReconciliationEffects(finishedWork);
             flags & 512 && (offscreenSubtreeWasHidden || null === current || safelyDetachRef(current, current.return));
             null !== current && flags & 4 && commitHostUpdate(
@@ -7907,7 +7907,7 @@
             );
             break;
           case 5:
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             commitReconciliationEffects(finishedWork);
             flags & 512 && (offscreenSubtreeWasHidden || null === current || safelyDetachRef(current, current.return));
             if (finishedWork.flags & 32) {
@@ -7926,7 +7926,7 @@
             flags & 1024 && (needsFormReset = true);
             break;
           case 6:
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             commitReconciliationEffects(finishedWork);
             if (flags & 4) {
               if (null === finishedWork.stateNode)
@@ -7943,13 +7943,13 @@
           case 3:
             tagCaches = null;
             hoistableRoot = currentHoistableRoot;
-            currentHoistableRoot = getHoistableRoot(root2.containerInfo);
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            currentHoistableRoot = getHoistableRoot(root3.containerInfo);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             currentHoistableRoot = hoistableRoot;
             commitReconciliationEffects(finishedWork);
             if (flags & 4 && null !== current && current.memoizedState.isDehydrated)
               try {
-                retryIfBlockedOn(root2.containerInfo);
+                retryIfBlockedOn(root3.containerInfo);
               } catch (error) {
                 captureCommitPhaseError(finishedWork, finishedWork.return, error);
               }
@@ -7960,21 +7960,21 @@
             currentHoistableRoot = getHoistableRoot(
               finishedWork.stateNode.containerInfo
             );
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             commitReconciliationEffects(finishedWork);
             currentHoistableRoot = flags;
             break;
           case 12:
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             commitReconciliationEffects(finishedWork);
             break;
           case 31:
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             commitReconciliationEffects(finishedWork);
             flags & 4 && (flags = finishedWork.updateQueue, null !== flags && (finishedWork.updateQueue = null, attachSuspenseRetryListeners(finishedWork, flags)));
             break;
           case 13:
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             commitReconciliationEffects(finishedWork);
             finishedWork.child.flags & 8192 && null !== finishedWork.memoizedState !== (null !== current && null !== current.memoizedState) && (globalMostRecentFallbackTime = now());
             flags & 4 && (flags = finishedWork.updateQueue, null !== flags && (finishedWork.updateQueue = null, attachSuspenseRetryListeners(finishedWork, flags)));
@@ -7984,15 +7984,15 @@
             var wasHidden = null !== current && null !== current.memoizedState, prevOffscreenSubtreeIsHidden = offscreenSubtreeIsHidden, prevOffscreenSubtreeWasHidden = offscreenSubtreeWasHidden;
             offscreenSubtreeIsHidden = prevOffscreenSubtreeIsHidden || hoistableRoot;
             offscreenSubtreeWasHidden = prevOffscreenSubtreeWasHidden || wasHidden;
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             offscreenSubtreeWasHidden = prevOffscreenSubtreeWasHidden;
             offscreenSubtreeIsHidden = prevOffscreenSubtreeIsHidden;
             commitReconciliationEffects(finishedWork);
             if (flags & 8192)
-              a: for (root2 = finishedWork.stateNode, root2._visibility = hoistableRoot ? root2._visibility & -2 : root2._visibility | 1, hoistableRoot && (null === current || wasHidden || offscreenSubtreeIsHidden || offscreenSubtreeWasHidden || recursivelyTraverseDisappearLayoutEffects(finishedWork)), current = null, root2 = finishedWork; ; ) {
-                if (5 === root2.tag || 26 === root2.tag) {
+              a: for (root3 = finishedWork.stateNode, root3._visibility = hoistableRoot ? root3._visibility & -2 : root3._visibility | 1, hoistableRoot && (null === current || wasHidden || offscreenSubtreeIsHidden || offscreenSubtreeWasHidden || recursivelyTraverseDisappearLayoutEffects(finishedWork)), current = null, root3 = finishedWork; ; ) {
+                if (5 === root3.tag || 26 === root3.tag) {
                   if (null === current) {
-                    wasHidden = current = root2;
+                    wasHidden = current = root3;
                     try {
                       if (currentResource = wasHidden.stateNode, hoistableRoot)
                         maybeNodes = currentResource.style, "function" === typeof maybeNodes.setProperty ? maybeNodes.setProperty("display", "none", "important") : maybeNodes.display = "none";
@@ -8005,18 +8005,18 @@
                       captureCommitPhaseError(wasHidden, wasHidden.return, error);
                     }
                   }
-                } else if (6 === root2.tag) {
+                } else if (6 === root3.tag) {
                   if (null === current) {
-                    wasHidden = root2;
+                    wasHidden = root3;
                     try {
                       wasHidden.stateNode.nodeValue = hoistableRoot ? "" : wasHidden.memoizedProps;
                     } catch (error) {
                       captureCommitPhaseError(wasHidden, wasHidden.return, error);
                     }
                   }
-                } else if (18 === root2.tag) {
+                } else if (18 === root3.tag) {
                   if (null === current) {
-                    wasHidden = root2;
+                    wasHidden = root3;
                     try {
                       var instance = wasHidden.stateNode;
                       hoistableRoot ? hideOrUnhideDehydratedBoundary(instance, true) : hideOrUnhideDehydratedBoundary(wasHidden.stateNode, false);
@@ -8024,25 +8024,25 @@
                       captureCommitPhaseError(wasHidden, wasHidden.return, error);
                     }
                   }
-                } else if ((22 !== root2.tag && 23 !== root2.tag || null === root2.memoizedState || root2 === finishedWork) && null !== root2.child) {
-                  root2.child.return = root2;
-                  root2 = root2.child;
+                } else if ((22 !== root3.tag && 23 !== root3.tag || null === root3.memoizedState || root3 === finishedWork) && null !== root3.child) {
+                  root3.child.return = root3;
+                  root3 = root3.child;
                   continue;
                 }
-                if (root2 === finishedWork) break a;
-                for (; null === root2.sibling; ) {
-                  if (null === root2.return || root2.return === finishedWork) break a;
-                  current === root2 && (current = null);
-                  root2 = root2.return;
+                if (root3 === finishedWork) break a;
+                for (; null === root3.sibling; ) {
+                  if (null === root3.return || root3.return === finishedWork) break a;
+                  current === root3 && (current = null);
+                  root3 = root3.return;
                 }
-                current === root2 && (current = null);
-                root2.sibling.return = root2.return;
-                root2 = root2.sibling;
+                current === root3 && (current = null);
+                root3.sibling.return = root3.return;
+                root3 = root3.sibling;
               }
             flags & 4 && (flags = finishedWork.updateQueue, null !== flags && (current = flags.retryQueue, null !== current && (flags.retryQueue = null, attachSuspenseRetryListeners(finishedWork, current))));
             break;
           case 19:
-            recursivelyTraverseMutationEffects(root2, finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork);
             commitReconciliationEffects(finishedWork);
             flags & 4 && (flags = finishedWork.updateQueue, null !== flags && (finishedWork.updateQueue = null, attachSuspenseRetryListeners(finishedWork, flags)));
             break;
@@ -8051,7 +8051,7 @@
           case 21:
             break;
           default:
-            recursivelyTraverseMutationEffects(root2, finishedWork), commitReconciliationEffects(finishedWork);
+            recursivelyTraverseMutationEffects(root3, finishedWork), commitReconciliationEffects(finishedWork);
         }
       }
       function commitReconciliationEffects(finishedWork) {
@@ -8105,10 +8105,10 @@
             parentFiber = parentFiber.sibling;
           }
       }
-      function recursivelyTraverseLayoutEffects(root2, parentFiber) {
+      function recursivelyTraverseLayoutEffects(root3, parentFiber) {
         if (parentFiber.subtreeFlags & 8772)
           for (parentFiber = parentFiber.child; null !== parentFiber; )
-            commitLayoutEffectOnFiber(root2, parentFiber.alternate, parentFiber), parentFiber = parentFiber.sibling;
+            commitLayoutEffectOnFiber(root3, parentFiber.alternate, parentFiber), parentFiber = parentFiber.sibling;
       }
       function recursivelyTraverseDisappearLayoutEffects(parentFiber) {
         for (parentFiber = parentFiber.child; null !== parentFiber; ) {
@@ -8263,11 +8263,11 @@
         finishedWork = finishedWork.memoizedState.cache;
         finishedWork !== current && (finishedWork.refCount++, null != current && releaseCache(current));
       }
-      function recursivelyTraversePassiveMountEffects(root2, parentFiber, committedLanes, committedTransitions) {
+      function recursivelyTraversePassiveMountEffects(root3, parentFiber, committedLanes, committedTransitions) {
         if (parentFiber.subtreeFlags & 10256)
           for (parentFiber = parentFiber.child; null !== parentFiber; )
             commitPassiveMountOnFiber(
-              root2,
+              root3,
               parentFiber,
               committedLanes,
               committedTransitions
@@ -8718,22 +8718,22 @@
         null !== lane && (lane.flags |= 32);
         return workInProgressDeferredLane;
       }
-      function scheduleUpdateOnFiber(root2, fiber, lane) {
-        if (root2 === workInProgressRoot && (2 === workInProgressSuspendedReason || 9 === workInProgressSuspendedReason) || null !== root2.cancelPendingCommit)
-          prepareFreshStack(root2, 0), markRootSuspended(
-            root2,
+      function scheduleUpdateOnFiber(root3, fiber, lane) {
+        if (root3 === workInProgressRoot && (2 === workInProgressSuspendedReason || 9 === workInProgressSuspendedReason) || null !== root3.cancelPendingCommit)
+          prepareFreshStack(root3, 0), markRootSuspended(
+            root3,
             workInProgressRootRenderLanes,
             workInProgressDeferredLane,
             false
           );
-        markRootUpdated$1(root2, lane);
-        if (0 === (executionContext & 2) || root2 !== workInProgressRoot)
-          root2 === workInProgressRoot && (0 === (executionContext & 2) && (workInProgressRootInterleavedUpdatedLanes |= lane), 4 === workInProgressRootExitStatus && markRootSuspended(
-            root2,
+        markRootUpdated$1(root3, lane);
+        if (0 === (executionContext & 2) || root3 !== workInProgressRoot)
+          root3 === workInProgressRoot && (0 === (executionContext & 2) && (workInProgressRootInterleavedUpdatedLanes |= lane), 4 === workInProgressRootExitStatus && markRootSuspended(
+            root3,
             workInProgressRootRenderLanes,
             workInProgressDeferredLane,
             false
-          )), ensureRootIsScheduled(root2);
+          )), ensureRootIsScheduled(root3);
       }
       function performWorkOnRoot(root$jscomp$0, lanes, forceSync) {
         if (0 !== (executionContext & 6)) throw Error(formatProdErrorMessage(327));
@@ -8758,18 +8758,18 @@
               if (0 !== JSCompiler_inline_result) {
                 lanes = JSCompiler_inline_result;
                 a: {
-                  var root2 = root$jscomp$0;
+                  var root3 = root$jscomp$0;
                   exitStatus = workInProgressRootConcurrentErrors;
-                  var wasRootDehydrated = root2.current.memoizedState.isDehydrated;
-                  wasRootDehydrated && (prepareFreshStack(root2, JSCompiler_inline_result).flags |= 256);
+                  var wasRootDehydrated = root3.current.memoizedState.isDehydrated;
+                  wasRootDehydrated && (prepareFreshStack(root3, JSCompiler_inline_result).flags |= 256);
                   JSCompiler_inline_result = renderRootSync(
-                    root2,
+                    root3,
                     JSCompiler_inline_result,
                     false
                   );
                   if (2 !== JSCompiler_inline_result) {
                     if (workInProgressRootDidAttachPingListener && !wasRootDehydrated) {
-                      root2.errorRecoveryDisabledLanes |= renderWasConcurrent;
+                      root3.errorRecoveryDisabledLanes |= renderWasConcurrent;
                       workInProgressRootInterleavedUpdatedLanes |= renderWasConcurrent;
                       exitStatus = 4;
                       break a;
@@ -8871,8 +8871,8 @@
         } while (1);
         ensureRootIsScheduled(root$jscomp$0);
       }
-      function commitRootWhenReady(root2, finishedWork, recoverableErrors, transitions, didIncludeRenderPhaseUpdate, lanes, spawnedLane, updatedLanes, suspendedRetryLanes, didSkipSuspendedSiblings, exitStatus, suspendedCommitReason, completedRenderStartTime, completedRenderEndTime) {
-        root2.timeoutHandle = -1;
+      function commitRootWhenReady(root3, finishedWork, recoverableErrors, transitions, didIncludeRenderPhaseUpdate, lanes, spawnedLane, updatedLanes, suspendedRetryLanes, didSkipSuspendedSiblings, exitStatus, suspendedCommitReason, completedRenderStartTime, completedRenderEndTime) {
+        root3.timeoutHandle = -1;
         suspendedCommitReason = finishedWork.subtreeFlags;
         if (suspendedCommitReason & 8192 || 16785408 === (suspendedCommitReason & 16785408)) {
           suspendedCommitReason = {
@@ -8897,10 +8897,10 @@
           );
           if (null !== timeoutOffset) {
             pendingEffectsLanes = lanes;
-            root2.cancelPendingCommit = timeoutOffset(
+            root3.cancelPendingCommit = timeoutOffset(
               commitRoot.bind(
                 null,
-                root2,
+                root3,
                 finishedWork,
                 lanes,
                 recoverableErrors,
@@ -8916,12 +8916,12 @@
                 completedRenderEndTime
               )
             );
-            markRootSuspended(root2, lanes, spawnedLane, !didSkipSuspendedSiblings);
+            markRootSuspended(root3, lanes, spawnedLane, !didSkipSuspendedSiblings);
             return;
           }
         }
         commitRoot(
-          root2,
+          root3,
           finishedWork,
           lanes,
           recoverableErrors,
@@ -8960,19 +8960,19 @@
         }
         return true;
       }
-      function markRootSuspended(root2, suspendedLanes, spawnedLane, didAttemptEntireTree) {
+      function markRootSuspended(root3, suspendedLanes, spawnedLane, didAttemptEntireTree) {
         suspendedLanes &= ~workInProgressRootPingedLanes;
         suspendedLanes &= ~workInProgressRootInterleavedUpdatedLanes;
-        root2.suspendedLanes |= suspendedLanes;
-        root2.pingedLanes &= ~suspendedLanes;
-        didAttemptEntireTree && (root2.warmLanes |= suspendedLanes);
-        didAttemptEntireTree = root2.expirationTimes;
+        root3.suspendedLanes |= suspendedLanes;
+        root3.pingedLanes &= ~suspendedLanes;
+        didAttemptEntireTree && (root3.warmLanes |= suspendedLanes);
+        didAttemptEntireTree = root3.expirationTimes;
         for (var lanes = suspendedLanes; 0 < lanes; ) {
           var index$6 = 31 - clz32(lanes), lane = 1 << index$6;
           didAttemptEntireTree[index$6] = -1;
           lanes &= ~lane;
         }
-        0 !== spawnedLane && markSpawnedDeferredLane(root2, spawnedLane, suspendedLanes);
+        0 !== spawnedLane && markSpawnedDeferredLane(root3, spawnedLane, suspendedLanes);
       }
       function flushSyncWork$1() {
         return 0 === (executionContext & 6) ? (flushSyncWorkAcrossRoots_impl(0, false), false) : true;
@@ -8988,44 +8988,44 @@
           workInProgress = null;
         }
       }
-      function prepareFreshStack(root2, lanes) {
-        var timeoutHandle = root2.timeoutHandle;
-        -1 !== timeoutHandle && (root2.timeoutHandle = -1, cancelTimeout(timeoutHandle));
-        timeoutHandle = root2.cancelPendingCommit;
-        null !== timeoutHandle && (root2.cancelPendingCommit = null, timeoutHandle());
+      function prepareFreshStack(root3, lanes) {
+        var timeoutHandle = root3.timeoutHandle;
+        -1 !== timeoutHandle && (root3.timeoutHandle = -1, cancelTimeout(timeoutHandle));
+        timeoutHandle = root3.cancelPendingCommit;
+        null !== timeoutHandle && (root3.cancelPendingCommit = null, timeoutHandle());
         pendingEffectsLanes = 0;
         resetWorkInProgressStack();
-        workInProgressRoot = root2;
-        workInProgress = timeoutHandle = createWorkInProgress(root2.current, null);
+        workInProgressRoot = root3;
+        workInProgress = timeoutHandle = createWorkInProgress(root3.current, null);
         workInProgressRootRenderLanes = lanes;
         workInProgressSuspendedReason = 0;
         workInProgressThrownValue = null;
         workInProgressRootDidSkipSuspendedSiblings = false;
-        workInProgressRootIsPrerendering = checkIfRootIsPrerendering(root2, lanes);
+        workInProgressRootIsPrerendering = checkIfRootIsPrerendering(root3, lanes);
         workInProgressRootDidAttachPingListener = false;
         workInProgressSuspendedRetryLanes = workInProgressDeferredLane = workInProgressRootPingedLanes = workInProgressRootInterleavedUpdatedLanes = workInProgressRootSkippedLanes = workInProgressRootExitStatus = 0;
         workInProgressRootRecoverableErrors = workInProgressRootConcurrentErrors = null;
         workInProgressRootDidIncludeRecursiveRenderUpdate = false;
         0 !== (lanes & 8) && (lanes |= lanes & 32);
-        var allEntangledLanes = root2.entangledLanes;
+        var allEntangledLanes = root3.entangledLanes;
         if (0 !== allEntangledLanes)
-          for (root2 = root2.entanglements, allEntangledLanes &= lanes; 0 < allEntangledLanes; ) {
+          for (root3 = root3.entanglements, allEntangledLanes &= lanes; 0 < allEntangledLanes; ) {
             var index$4 = 31 - clz32(allEntangledLanes), lane = 1 << index$4;
-            lanes |= root2[index$4];
+            lanes |= root3[index$4];
             allEntangledLanes &= ~lane;
           }
         entangledRenderLanes = lanes;
         finishQueueingConcurrentUpdates();
         return timeoutHandle;
       }
-      function handleThrow(root2, thrownValue) {
+      function handleThrow(root3, thrownValue) {
         currentlyRenderingFiber = null;
         ReactSharedInternals.H = ContextOnlyDispatcher;
         thrownValue === SuspenseException || thrownValue === SuspenseActionException ? (thrownValue = getSuspendedThenable(), workInProgressSuspendedReason = 3) : thrownValue === SuspenseyCommitException ? (thrownValue = getSuspendedThenable(), workInProgressSuspendedReason = 4) : workInProgressSuspendedReason = thrownValue === SelectiveHydrationException ? 8 : null !== thrownValue && "object" === typeof thrownValue && "function" === typeof thrownValue.then ? 6 : 1;
         workInProgressThrownValue = thrownValue;
         null === workInProgress && (workInProgressRootExitStatus = 1, logUncaughtError(
-          root2,
-          createCapturedValueAtFiber(thrownValue, root2.current)
+          root3,
+          createCapturedValueAtFiber(thrownValue, root3.current)
         ));
       }
       function shouldRemainOnPreviousScreen() {
@@ -9052,12 +9052,12 @@
           false
         );
       }
-      function renderRootSync(root2, lanes, shouldYieldForPrerendering) {
+      function renderRootSync(root3, lanes, shouldYieldForPrerendering) {
         var prevExecutionContext = executionContext;
         executionContext |= 2;
         var prevDispatcher = pushDispatcher(), prevAsyncDispatcher = pushAsyncDispatcher();
-        if (workInProgressRoot !== root2 || workInProgressRootRenderLanes !== lanes)
-          workInProgressTransitions = null, prepareFreshStack(root2, lanes);
+        if (workInProgressRoot !== root3 || workInProgressRootRenderLanes !== lanes)
+          workInProgressTransitions = null, prepareFreshStack(root3, lanes);
         lanes = false;
         var exitStatus = workInProgressRootExitStatus;
         a: do
@@ -9077,24 +9077,24 @@
                   var reason = workInProgressSuspendedReason;
                   workInProgressSuspendedReason = 0;
                   workInProgressThrownValue = null;
-                  throwAndUnwindWorkLoop(root2, unitOfWork, thrownValue, reason);
+                  throwAndUnwindWorkLoop(root3, unitOfWork, thrownValue, reason);
                   if (shouldYieldForPrerendering && workInProgressRootIsPrerendering) {
                     exitStatus = 0;
                     break a;
                   }
                   break;
                 default:
-                  reason = workInProgressSuspendedReason, workInProgressSuspendedReason = 0, workInProgressThrownValue = null, throwAndUnwindWorkLoop(root2, unitOfWork, thrownValue, reason);
+                  reason = workInProgressSuspendedReason, workInProgressSuspendedReason = 0, workInProgressThrownValue = null, throwAndUnwindWorkLoop(root3, unitOfWork, thrownValue, reason);
               }
             }
             workLoopSync();
             exitStatus = workInProgressRootExitStatus;
             break;
           } catch (thrownValue$165) {
-            handleThrow(root2, thrownValue$165);
+            handleThrow(root3, thrownValue$165);
           }
         while (1);
-        lanes && root2.shellSuspendCounter++;
+        lanes && root3.shellSuspendCounter++;
         lastContextDependency = currentlyRenderingFiber$1 = null;
         executionContext = prevExecutionContext;
         ReactSharedInternals.H = prevDispatcher;
@@ -9105,12 +9105,12 @@
       function workLoopSync() {
         for (; null !== workInProgress; ) performUnitOfWork(workInProgress);
       }
-      function renderRootConcurrent(root2, lanes) {
+      function renderRootConcurrent(root3, lanes) {
         var prevExecutionContext = executionContext;
         executionContext |= 2;
         var prevDispatcher = pushDispatcher(), prevAsyncDispatcher = pushAsyncDispatcher();
-        workInProgressRoot !== root2 || workInProgressRootRenderLanes !== lanes ? (workInProgressTransitions = null, workInProgressRootRenderTargetTime = now() + 500, prepareFreshStack(root2, lanes)) : workInProgressRootIsPrerendering = checkIfRootIsPrerendering(
-          root2,
+        workInProgressRoot !== root3 || workInProgressRootRenderLanes !== lanes ? (workInProgressTransitions = null, workInProgressRootRenderTargetTime = now() + 500, prepareFreshStack(root3, lanes)) : workInProgressRootIsPrerendering = checkIfRootIsPrerendering(
+          root3,
           lanes
         );
         a: do
@@ -9122,7 +9122,7 @@
                 case 1:
                   workInProgressSuspendedReason = 0;
                   workInProgressThrownValue = null;
-                  throwAndUnwindWorkLoop(root2, lanes, thrownValue, 1);
+                  throwAndUnwindWorkLoop(root3, lanes, thrownValue, 1);
                   break;
                 case 2:
                 case 9:
@@ -9133,8 +9133,8 @@
                     break;
                   }
                   lanes = function() {
-                    2 !== workInProgressSuspendedReason && 9 !== workInProgressSuspendedReason || workInProgressRoot !== root2 || (workInProgressSuspendedReason = 7);
-                    ensureRootIsScheduled(root2);
+                    2 !== workInProgressSuspendedReason && 9 !== workInProgressSuspendedReason || workInProgressRoot !== root3 || (workInProgressSuspendedReason = 7);
+                    ensureRootIsScheduled(root3);
                   };
                   thrownValue.then(lanes, lanes);
                   break a;
@@ -9145,7 +9145,7 @@
                   workInProgressSuspendedReason = 5;
                   break a;
                 case 7:
-                  isThenableResolved(thrownValue) ? (workInProgressSuspendedReason = 0, workInProgressThrownValue = null, replaySuspendedUnitOfWork(lanes)) : (workInProgressSuspendedReason = 0, workInProgressThrownValue = null, throwAndUnwindWorkLoop(root2, lanes, thrownValue, 7));
+                  isThenableResolved(thrownValue) ? (workInProgressSuspendedReason = 0, workInProgressThrownValue = null, replaySuspendedUnitOfWork(lanes)) : (workInProgressSuspendedReason = 0, workInProgressThrownValue = null, throwAndUnwindWorkLoop(root3, lanes, thrownValue, 7));
                   break;
                 case 5:
                   var resource = null;
@@ -9169,12 +9169,12 @@
                   }
                   workInProgressSuspendedReason = 0;
                   workInProgressThrownValue = null;
-                  throwAndUnwindWorkLoop(root2, lanes, thrownValue, 5);
+                  throwAndUnwindWorkLoop(root3, lanes, thrownValue, 5);
                   break;
                 case 6:
                   workInProgressSuspendedReason = 0;
                   workInProgressThrownValue = null;
-                  throwAndUnwindWorkLoop(root2, lanes, thrownValue, 6);
+                  throwAndUnwindWorkLoop(root3, lanes, thrownValue, 6);
                   break;
                 case 8:
                   resetWorkInProgressStack();
@@ -9187,7 +9187,7 @@
             workLoopConcurrentByScheduler();
             break;
           } catch (thrownValue$167) {
-            handleThrow(root2, thrownValue$167);
+            handleThrow(root3, thrownValue$167);
           }
         while (1);
         lastContextDependency = currentlyRenderingFiber$1 = null;
@@ -9242,7 +9242,7 @@
         unitOfWork.memoizedProps = unitOfWork.pendingProps;
         null === next ? completeUnitOfWork(unitOfWork) : workInProgress = next;
       }
-      function throwAndUnwindWorkLoop(root2, unitOfWork, thrownValue, suspendedReason) {
+      function throwAndUnwindWorkLoop(root3, unitOfWork, thrownValue, suspendedReason) {
         lastContextDependency = currentlyRenderingFiber$1 = null;
         resetHooksOnUnwind(unitOfWork);
         thenableState$1 = null;
@@ -9250,7 +9250,7 @@
         var returnFiber = unitOfWork.return;
         try {
           if (throwException(
-            root2,
+            root3,
             returnFiber,
             unitOfWork,
             thrownValue,
@@ -9258,8 +9258,8 @@
           )) {
             workInProgressRootExitStatus = 1;
             logUncaughtError(
-              root2,
-              createCapturedValueAtFiber(thrownValue, root2.current)
+              root3,
+              createCapturedValueAtFiber(thrownValue, root3.current)
             );
             workInProgress = null;
             return;
@@ -9268,19 +9268,19 @@
           if (null !== returnFiber) throw workInProgress = returnFiber, error;
           workInProgressRootExitStatus = 1;
           logUncaughtError(
-            root2,
-            createCapturedValueAtFiber(thrownValue, root2.current)
+            root3,
+            createCapturedValueAtFiber(thrownValue, root3.current)
           );
           workInProgress = null;
           return;
         }
         if (unitOfWork.flags & 32768) {
-          if (isHydrating || 1 === suspendedReason) root2 = true;
+          if (isHydrating || 1 === suspendedReason) root3 = true;
           else if (workInProgressRootIsPrerendering || 0 !== (workInProgressRootRenderLanes & 536870912))
-            root2 = false;
-          else if (workInProgressRootDidSkipSuspendedSiblings = root2 = true, 2 === suspendedReason || 9 === suspendedReason || 3 === suspendedReason || 6 === suspendedReason)
+            root3 = false;
+          else if (workInProgressRootDidSkipSuspendedSiblings = root3 = true, 2 === suspendedReason || 9 === suspendedReason || 3 === suspendedReason || 6 === suspendedReason)
             suspendedReason = suspenseHandlerStackCursor.current, null !== suspendedReason && 13 === suspendedReason.tag && (suspendedReason.flags |= 16384);
-          unwindUnitOfWork(unitOfWork, root2);
+          unwindUnitOfWork(unitOfWork, root3);
         } else completeUnitOfWork(unitOfWork);
       }
       function completeUnitOfWork(unitOfWork) {
@@ -9331,35 +9331,35 @@
         workInProgressRootExitStatus = 6;
         workInProgress = null;
       }
-      function commitRoot(root2, finishedWork, lanes, recoverableErrors, transitions, didIncludeRenderPhaseUpdate, spawnedLane, updatedLanes, suspendedRetryLanes) {
-        root2.cancelPendingCommit = null;
+      function commitRoot(root3, finishedWork, lanes, recoverableErrors, transitions, didIncludeRenderPhaseUpdate, spawnedLane, updatedLanes, suspendedRetryLanes) {
+        root3.cancelPendingCommit = null;
         do
           flushPendingEffects();
         while (0 !== pendingEffectsStatus);
         if (0 !== (executionContext & 6)) throw Error(formatProdErrorMessage(327));
         if (null !== finishedWork) {
-          if (finishedWork === root2.current) throw Error(formatProdErrorMessage(177));
+          if (finishedWork === root3.current) throw Error(formatProdErrorMessage(177));
           didIncludeRenderPhaseUpdate = finishedWork.lanes | finishedWork.childLanes;
           didIncludeRenderPhaseUpdate |= concurrentlyUpdatedLanes;
           markRootFinished(
-            root2,
+            root3,
             lanes,
             didIncludeRenderPhaseUpdate,
             spawnedLane,
             updatedLanes,
             suspendedRetryLanes
           );
-          root2 === workInProgressRoot && (workInProgress = workInProgressRoot = null, workInProgressRootRenderLanes = 0);
+          root3 === workInProgressRoot && (workInProgress = workInProgressRoot = null, workInProgressRootRenderLanes = 0);
           pendingFinishedWork = finishedWork;
-          pendingEffectsRoot = root2;
+          pendingEffectsRoot = root3;
           pendingEffectsLanes = lanes;
           pendingEffectsRemainingLanes = didIncludeRenderPhaseUpdate;
           pendingPassiveTransitions = transitions;
           pendingRecoverableErrors = recoverableErrors;
-          0 !== (finishedWork.subtreeFlags & 10256) || 0 !== (finishedWork.flags & 10256) ? (root2.callbackNode = null, root2.callbackPriority = 0, scheduleCallback$1(NormalPriority$1, function() {
+          0 !== (finishedWork.subtreeFlags & 10256) || 0 !== (finishedWork.flags & 10256) ? (root3.callbackNode = null, root3.callbackPriority = 0, scheduleCallback$1(NormalPriority$1, function() {
             flushPassiveEffects();
             return null;
-          })) : (root2.callbackNode = null, root2.callbackPriority = 0);
+          })) : (root3.callbackNode = null, root3.callbackPriority = 0);
           recoverableErrors = 0 !== (finishedWork.flags & 13878);
           if (0 !== (finishedWork.subtreeFlags & 13878) || recoverableErrors) {
             recoverableErrors = ReactSharedInternals.T;
@@ -9369,7 +9369,7 @@
             spawnedLane = executionContext;
             executionContext |= 4;
             try {
-              commitBeforeMutationEffects(root2, finishedWork, lanes);
+              commitBeforeMutationEffects(root3, finishedWork, lanes);
             } finally {
               executionContext = spawnedLane, ReactDOMSharedInternals.p = transitions, ReactSharedInternals.T = recoverableErrors;
             }
@@ -9383,7 +9383,7 @@
       function flushMutationEffects() {
         if (1 === pendingEffectsStatus) {
           pendingEffectsStatus = 0;
-          var root2 = pendingEffectsRoot, finishedWork = pendingFinishedWork, rootMutationHasEffect = 0 !== (finishedWork.flags & 13878);
+          var root3 = pendingEffectsRoot, finishedWork = pendingFinishedWork, rootMutationHasEffect = 0 !== (finishedWork.flags & 13878);
           if (0 !== (finishedWork.subtreeFlags & 13878) || rootMutationHasEffect) {
             rootMutationHasEffect = ReactSharedInternals.T;
             ReactSharedInternals.T = null;
@@ -9392,8 +9392,8 @@
             var prevExecutionContext = executionContext;
             executionContext |= 4;
             try {
-              commitMutationEffectsOnFiber(finishedWork, root2);
-              var priorSelectionInformation = selectionInformation, curFocusedElem = getActiveElementDeep(root2.containerInfo), priorFocusedElem = priorSelectionInformation.focusedElem, priorSelectionRange = priorSelectionInformation.selectionRange;
+              commitMutationEffectsOnFiber(finishedWork, root3);
+              var priorSelectionInformation = selectionInformation, curFocusedElem = getActiveElementDeep(root3.containerInfo), priorFocusedElem = priorSelectionInformation.focusedElem, priorSelectionRange = priorSelectionInformation.selectionRange;
               if (curFocusedElem !== priorFocusedElem && priorFocusedElem && priorFocusedElem.ownerDocument && containsNode(
                 priorFocusedElem.ownerDocument.documentElement,
                 priorFocusedElem
@@ -9447,14 +9447,14 @@
               executionContext = prevExecutionContext, ReactDOMSharedInternals.p = previousPriority, ReactSharedInternals.T = rootMutationHasEffect;
             }
           }
-          root2.current = finishedWork;
+          root3.current = finishedWork;
           pendingEffectsStatus = 2;
         }
       }
       function flushLayoutEffects() {
         if (2 === pendingEffectsStatus) {
           pendingEffectsStatus = 0;
-          var root2 = pendingEffectsRoot, finishedWork = pendingFinishedWork, rootHasLayoutEffect = 0 !== (finishedWork.flags & 8772);
+          var root3 = pendingEffectsRoot, finishedWork = pendingFinishedWork, rootHasLayoutEffect = 0 !== (finishedWork.flags & 8772);
           if (0 !== (finishedWork.subtreeFlags & 8772) || rootHasLayoutEffect) {
             rootHasLayoutEffect = ReactSharedInternals.T;
             ReactSharedInternals.T = null;
@@ -9463,7 +9463,7 @@
             var prevExecutionContext = executionContext;
             executionContext |= 4;
             try {
-              commitLayoutEffectOnFiber(root2, finishedWork.alternate, finishedWork);
+              commitLayoutEffectOnFiber(root3, finishedWork.alternate, finishedWork);
             } finally {
               executionContext = prevExecutionContext, ReactDOMSharedInternals.p = previousPriority, ReactSharedInternals.T = rootHasLayoutEffect;
             }
@@ -9475,9 +9475,9 @@
         if (4 === pendingEffectsStatus || 3 === pendingEffectsStatus) {
           pendingEffectsStatus = 0;
           requestPaint();
-          var root2 = pendingEffectsRoot, finishedWork = pendingFinishedWork, lanes = pendingEffectsLanes, recoverableErrors = pendingRecoverableErrors;
-          0 !== (finishedWork.subtreeFlags & 10256) || 0 !== (finishedWork.flags & 10256) ? pendingEffectsStatus = 5 : (pendingEffectsStatus = 0, pendingFinishedWork = pendingEffectsRoot = null, releaseRootPooledCache(root2, root2.pendingLanes));
-          var remainingLanes = root2.pendingLanes;
+          var root3 = pendingEffectsRoot, finishedWork = pendingFinishedWork, lanes = pendingEffectsLanes, recoverableErrors = pendingRecoverableErrors;
+          0 !== (finishedWork.subtreeFlags & 10256) || 0 !== (finishedWork.flags & 10256) ? pendingEffectsStatus = 5 : (pendingEffectsStatus = 0, pendingFinishedWork = pendingEffectsRoot = null, releaseRootPooledCache(root3, root3.pendingLanes));
+          var remainingLanes = root3.pendingLanes;
           0 === remainingLanes && (legacyErrorBoundariesThatAlreadyFailed = null);
           lanesToEventPriority(lanes);
           finishedWork = finishedWork.stateNode;
@@ -9497,7 +9497,7 @@
             ReactDOMSharedInternals.p = 2;
             ReactSharedInternals.T = null;
             try {
-              for (var onRecoverableError = root2.onRecoverableError, i = 0; i < recoverableErrors.length; i++) {
+              for (var onRecoverableError = root3.onRecoverableError, i = 0; i < recoverableErrors.length; i++) {
                 var recoverableError = recoverableErrors[i];
                 onRecoverableError(recoverableError.value, {
                   componentStack: recoverableError.stack
@@ -9508,14 +9508,14 @@
             }
           }
           0 !== (pendingEffectsLanes & 3) && flushPendingEffects();
-          ensureRootIsScheduled(root2);
-          remainingLanes = root2.pendingLanes;
-          0 !== (lanes & 261930) && 0 !== (remainingLanes & 42) ? root2 === rootWithNestedUpdates ? nestedUpdateCount++ : (nestedUpdateCount = 0, rootWithNestedUpdates = root2) : nestedUpdateCount = 0;
+          ensureRootIsScheduled(root3);
+          remainingLanes = root3.pendingLanes;
+          0 !== (lanes & 261930) && 0 !== (remainingLanes & 42) ? root3 === rootWithNestedUpdates ? nestedUpdateCount++ : (nestedUpdateCount = 0, rootWithNestedUpdates = root3) : nestedUpdateCount = 0;
           flushSyncWorkAcrossRoots_impl(0, false);
         }
       }
-      function releaseRootPooledCache(root2, remainingLanes) {
-        0 === (root2.pooledCacheLanes &= remainingLanes) && (remainingLanes = root2.pooledCache, null != remainingLanes && (root2.pooledCache = null, releaseCache(remainingLanes)));
+      function releaseRootPooledCache(root3, remainingLanes) {
+        0 === (root3.pooledCacheLanes &= remainingLanes) && (remainingLanes = root3.pooledCache, null != remainingLanes && (root3.pooledCache = null, releaseCache(remainingLanes)));
       }
       function flushPendingEffects() {
         flushMutationEffects();
@@ -9525,7 +9525,7 @@
       }
       function flushPassiveEffects() {
         if (5 !== pendingEffectsStatus) return false;
-        var root2 = pendingEffectsRoot, remainingLanes = pendingEffectsRemainingLanes;
+        var root3 = pendingEffectsRoot, remainingLanes = pendingEffectsRemainingLanes;
         pendingEffectsRemainingLanes = 0;
         var renderPriority = lanesToEventPriority(pendingEffectsLanes), prevTransition = ReactSharedInternals.T, previousPriority = ReactDOMSharedInternals.p;
         try {
@@ -9556,7 +9556,7 @@
             }
           return true;
         } finally {
-          ReactDOMSharedInternals.p = previousPriority, ReactSharedInternals.T = prevTransition, releaseRootPooledCache(root2, remainingLanes);
+          ReactDOMSharedInternals.p = previousPriority, ReactSharedInternals.T = prevTransition, releaseRootPooledCache(root3, remainingLanes);
         }
       }
       function captureCommitPhaseErrorOnRoot(rootFiber, sourceFiber, error) {
@@ -9595,23 +9595,23 @@
             nearestMountedAncestor = nearestMountedAncestor.return;
           }
       }
-      function attachPingListener(root2, wakeable, lanes) {
-        var pingCache = root2.pingCache;
+      function attachPingListener(root3, wakeable, lanes) {
+        var pingCache = root3.pingCache;
         if (null === pingCache) {
-          pingCache = root2.pingCache = new PossiblyWeakMap();
+          pingCache = root3.pingCache = new PossiblyWeakMap();
           var threadIDs = /* @__PURE__ */ new Set();
           pingCache.set(wakeable, threadIDs);
         } else
           threadIDs = pingCache.get(wakeable), void 0 === threadIDs && (threadIDs = /* @__PURE__ */ new Set(), pingCache.set(wakeable, threadIDs));
-        threadIDs.has(lanes) || (workInProgressRootDidAttachPingListener = true, threadIDs.add(lanes), root2 = pingSuspendedRoot.bind(null, root2, wakeable, lanes), wakeable.then(root2, root2));
+        threadIDs.has(lanes) || (workInProgressRootDidAttachPingListener = true, threadIDs.add(lanes), root3 = pingSuspendedRoot.bind(null, root3, wakeable, lanes), wakeable.then(root3, root3));
       }
-      function pingSuspendedRoot(root2, wakeable, pingedLanes) {
-        var pingCache = root2.pingCache;
+      function pingSuspendedRoot(root3, wakeable, pingedLanes) {
+        var pingCache = root3.pingCache;
         null !== pingCache && pingCache.delete(wakeable);
-        root2.pingedLanes |= root2.suspendedLanes & pingedLanes;
-        root2.warmLanes &= ~pingedLanes;
-        workInProgressRoot === root2 && (workInProgressRootRenderLanes & pingedLanes) === pingedLanes && (4 === workInProgressRootExitStatus || 3 === workInProgressRootExitStatus && (workInProgressRootRenderLanes & 62914560) === workInProgressRootRenderLanes && 300 > now() - globalMostRecentFallbackTime ? 0 === (executionContext & 2) && prepareFreshStack(root2, 0) : workInProgressRootPingedLanes |= pingedLanes, workInProgressSuspendedRetryLanes === workInProgressRootRenderLanes && (workInProgressSuspendedRetryLanes = 0));
-        ensureRootIsScheduled(root2);
+        root3.pingedLanes |= root3.suspendedLanes & pingedLanes;
+        root3.warmLanes &= ~pingedLanes;
+        workInProgressRoot === root3 && (workInProgressRootRenderLanes & pingedLanes) === pingedLanes && (4 === workInProgressRootExitStatus || 3 === workInProgressRootExitStatus && (workInProgressRootRenderLanes & 62914560) === workInProgressRootRenderLanes && 300 > now() - globalMostRecentFallbackTime ? 0 === (executionContext & 2) && prepareFreshStack(root3, 0) : workInProgressRootPingedLanes |= pingedLanes, workInProgressSuspendedRetryLanes === workInProgressRootRenderLanes && (workInProgressSuspendedRetryLanes = 0));
+        ensureRootIsScheduled(root3);
       }
       function retryTimedOutBoundary(boundaryFiber, retryLane) {
         0 === retryLane && (retryLane = claimNextRetryLane());
@@ -9653,8 +9653,8 @@
       var mightHavePendingSyncWork = false;
       var isFlushingWork = false;
       var currentEventTransitionLane = 0;
-      function ensureRootIsScheduled(root2) {
-        root2 !== lastScheduledRoot && null === root2.next && (null === lastScheduledRoot ? firstScheduledRoot = lastScheduledRoot = root2 : lastScheduledRoot = lastScheduledRoot.next = root2);
+      function ensureRootIsScheduled(root3) {
+        root3 !== lastScheduledRoot && null === root3.next && (null === lastScheduledRoot ? firstScheduledRoot = lastScheduledRoot = root3 : lastScheduledRoot = lastScheduledRoot.next = root3);
         mightHavePendingSyncWork = true;
         didScheduleMicrotask || (didScheduleMicrotask = true, scheduleImmediateRootScheduleTask());
       }
@@ -9694,39 +9694,39 @@
         mightHavePendingSyncWork = didScheduleMicrotask = false;
         var syncTransitionLanes = 0;
         0 !== currentEventTransitionLane && shouldAttemptEagerTransition() && (syncTransitionLanes = currentEventTransitionLane);
-        for (var currentTime = now(), prev = null, root2 = firstScheduledRoot; null !== root2; ) {
-          var next = root2.next, nextLanes = scheduleTaskForRootDuringMicrotask(root2, currentTime);
+        for (var currentTime = now(), prev = null, root3 = firstScheduledRoot; null !== root3; ) {
+          var next = root3.next, nextLanes = scheduleTaskForRootDuringMicrotask(root3, currentTime);
           if (0 === nextLanes)
-            root2.next = null, null === prev ? firstScheduledRoot = next : prev.next = next, null === next && (lastScheduledRoot = prev);
-          else if (prev = root2, 0 !== syncTransitionLanes || 0 !== (nextLanes & 3))
+            root3.next = null, null === prev ? firstScheduledRoot = next : prev.next = next, null === next && (lastScheduledRoot = prev);
+          else if (prev = root3, 0 !== syncTransitionLanes || 0 !== (nextLanes & 3))
             mightHavePendingSyncWork = true;
-          root2 = next;
+          root3 = next;
         }
         0 !== pendingEffectsStatus && 5 !== pendingEffectsStatus || flushSyncWorkAcrossRoots_impl(syncTransitionLanes, false);
         0 !== currentEventTransitionLane && (currentEventTransitionLane = 0);
       }
-      function scheduleTaskForRootDuringMicrotask(root2, currentTime) {
-        for (var suspendedLanes = root2.suspendedLanes, pingedLanes = root2.pingedLanes, expirationTimes = root2.expirationTimes, lanes = root2.pendingLanes & -62914561; 0 < lanes; ) {
+      function scheduleTaskForRootDuringMicrotask(root3, currentTime) {
+        for (var suspendedLanes = root3.suspendedLanes, pingedLanes = root3.pingedLanes, expirationTimes = root3.expirationTimes, lanes = root3.pendingLanes & -62914561; 0 < lanes; ) {
           var index$5 = 31 - clz32(lanes), lane = 1 << index$5, expirationTime = expirationTimes[index$5];
           if (-1 === expirationTime) {
             if (0 === (lane & suspendedLanes) || 0 !== (lane & pingedLanes))
               expirationTimes[index$5] = computeExpirationTime(lane, currentTime);
-          } else expirationTime <= currentTime && (root2.expiredLanes |= lane);
+          } else expirationTime <= currentTime && (root3.expiredLanes |= lane);
           lanes &= ~lane;
         }
         currentTime = workInProgressRoot;
         suspendedLanes = workInProgressRootRenderLanes;
         suspendedLanes = getNextLanes(
-          root2,
-          root2 === currentTime ? suspendedLanes : 0,
-          null !== root2.cancelPendingCommit || -1 !== root2.timeoutHandle
+          root3,
+          root3 === currentTime ? suspendedLanes : 0,
+          null !== root3.cancelPendingCommit || -1 !== root3.timeoutHandle
         );
-        pingedLanes = root2.callbackNode;
-        if (0 === suspendedLanes || root2 === currentTime && (2 === workInProgressSuspendedReason || 9 === workInProgressSuspendedReason) || null !== root2.cancelPendingCommit)
-          return null !== pingedLanes && null !== pingedLanes && cancelCallback$1(pingedLanes), root2.callbackNode = null, root2.callbackPriority = 0;
-        if (0 === (suspendedLanes & 3) || checkIfRootIsPrerendering(root2, suspendedLanes)) {
+        pingedLanes = root3.callbackNode;
+        if (0 === suspendedLanes || root3 === currentTime && (2 === workInProgressSuspendedReason || 9 === workInProgressSuspendedReason) || null !== root3.cancelPendingCommit)
+          return null !== pingedLanes && null !== pingedLanes && cancelCallback$1(pingedLanes), root3.callbackNode = null, root3.callbackPriority = 0;
+        if (0 === (suspendedLanes & 3) || checkIfRootIsPrerendering(root3, suspendedLanes)) {
           currentTime = suspendedLanes & -suspendedLanes;
-          if (currentTime === root2.callbackPriority) return currentTime;
+          if (currentTime === root3.callbackPriority) return currentTime;
           null !== pingedLanes && cancelCallback$1(pingedLanes);
           switch (lanesToEventPriority(suspendedLanes)) {
             case 2:
@@ -9742,37 +9742,37 @@
             default:
               suspendedLanes = NormalPriority$1;
           }
-          pingedLanes = performWorkOnRootViaSchedulerTask.bind(null, root2);
+          pingedLanes = performWorkOnRootViaSchedulerTask.bind(null, root3);
           suspendedLanes = scheduleCallback$3(suspendedLanes, pingedLanes);
-          root2.callbackPriority = currentTime;
-          root2.callbackNode = suspendedLanes;
+          root3.callbackPriority = currentTime;
+          root3.callbackNode = suspendedLanes;
           return currentTime;
         }
         null !== pingedLanes && null !== pingedLanes && cancelCallback$1(pingedLanes);
-        root2.callbackPriority = 2;
-        root2.callbackNode = null;
+        root3.callbackPriority = 2;
+        root3.callbackNode = null;
         return 2;
       }
-      function performWorkOnRootViaSchedulerTask(root2, didTimeout) {
+      function performWorkOnRootViaSchedulerTask(root3, didTimeout) {
         if (0 !== pendingEffectsStatus && 5 !== pendingEffectsStatus)
-          return root2.callbackNode = null, root2.callbackPriority = 0, null;
-        var originalCallbackNode = root2.callbackNode;
-        if (flushPendingEffects() && root2.callbackNode !== originalCallbackNode)
+          return root3.callbackNode = null, root3.callbackPriority = 0, null;
+        var originalCallbackNode = root3.callbackNode;
+        if (flushPendingEffects() && root3.callbackNode !== originalCallbackNode)
           return null;
         var workInProgressRootRenderLanes$jscomp$0 = workInProgressRootRenderLanes;
         workInProgressRootRenderLanes$jscomp$0 = getNextLanes(
-          root2,
-          root2 === workInProgressRoot ? workInProgressRootRenderLanes$jscomp$0 : 0,
-          null !== root2.cancelPendingCommit || -1 !== root2.timeoutHandle
+          root3,
+          root3 === workInProgressRoot ? workInProgressRootRenderLanes$jscomp$0 : 0,
+          null !== root3.cancelPendingCommit || -1 !== root3.timeoutHandle
         );
         if (0 === workInProgressRootRenderLanes$jscomp$0) return null;
-        performWorkOnRoot(root2, workInProgressRootRenderLanes$jscomp$0, didTimeout);
-        scheduleTaskForRootDuringMicrotask(root2, now());
-        return null != root2.callbackNode && root2.callbackNode === originalCallbackNode ? performWorkOnRootViaSchedulerTask.bind(null, root2) : null;
+        performWorkOnRoot(root3, workInProgressRootRenderLanes$jscomp$0, didTimeout);
+        scheduleTaskForRootDuringMicrotask(root3, now());
+        return null != root3.callbackNode && root3.callbackNode === originalCallbackNode ? performWorkOnRootViaSchedulerTask.bind(null, root3) : null;
       }
-      function performSyncWorkOnRoot(root2, lanes) {
+      function performSyncWorkOnRoot(root3, lanes) {
         if (flushPendingEffects()) return null;
-        performWorkOnRoot(root2, lanes, true);
+        performWorkOnRoot(root3, lanes, true);
       }
       function scheduleImmediateRootScheduleTask() {
         scheduleMicrotask(function() {
@@ -10299,7 +10299,7 @@
               }
             else
               isComposing ? isFallbackCompositionEnd(domEventName, nativeEvent) && (eventType = "onCompositionEnd") : "keydown" === domEventName && 229 === nativeEvent.keyCode && (eventType = "onCompositionStart");
-            eventType && (useFallbackCompositionData && "ko" !== nativeEvent.locale && (isComposing || "onCompositionStart" !== eventType ? "onCompositionEnd" === eventType && isComposing && (fallbackData = getData()) : (root = nativeEventTarget, startText = "value" in root ? root.value : root.textContent, isComposing = true)), handleEventFunc = accumulateTwoPhaseListeners(targetInst, eventType), 0 < handleEventFunc.length && (eventType = new SyntheticCompositionEvent(
+            eventType && (useFallbackCompositionData && "ko" !== nativeEvent.locale && (isComposing || "onCompositionStart" !== eventType ? "onCompositionEnd" === eventType && isComposing && (fallbackData = getData()) : (root2 = nativeEventTarget, startText = "value" in root2 ? root2.value : root2.textContent, isComposing = true)), handleEventFunc = accumulateTwoPhaseListeners(targetInst, eventType), 0 < handleEventFunc.length && (eventType = new SyntheticCompositionEvent(
               eventType,
               domEventName,
               null,
@@ -11778,15 +11778,15 @@
           "stylesheet" === resource.type && 0 === (resource.state.loading & 4) && (instance = resource.instance, resource.state.loading |= 4, insertStylesheet(instance, props.precedence, hoistableRoot));
         return resource.instance;
       }
-      function insertStylesheet(instance, precedence, root2) {
-        for (var nodes = root2.querySelectorAll(
+      function insertStylesheet(instance, precedence, root3) {
+        for (var nodes = root3.querySelectorAll(
           'link[rel="stylesheet"][data-precedence],style[data-precedence]'
         ), last = nodes.length ? nodes[nodes.length - 1] : null, prior = last, i = 0; i < nodes.length; i++) {
           var node = nodes[i];
           if (node.dataset.precedence === precedence) prior = node;
           else if (prior !== last) break;
         }
-        prior ? prior.parentNode.insertBefore(instance, prior.nextSibling) : (precedence = 9 === root2.nodeType ? root2.head : root2, precedence.insertBefore(instance, precedence.firstChild));
+        prior ? prior.parentNode.insertBefore(instance, prior.nextSibling) : (precedence = 9 === root3.nodeType ? root3.head : root3, precedence.insertBefore(instance, precedence.firstChild));
       }
       function adoptPreloadPropsForStylesheet(stylesheetProps, preloadProps) {
         null == stylesheetProps.crossOrigin && (stylesheetProps.crossOrigin = preloadProps.crossOrigin);
@@ -11935,14 +11935,14 @@
         state.stylesheets = null;
         null !== state.unsuspend && (state.count++, precedencesByRoot = /* @__PURE__ */ new Map(), resources.forEach(insertStylesheetIntoRoot, state), precedencesByRoot = null, onUnsuspend.call(state));
       }
-      function insertStylesheetIntoRoot(root2, resource) {
+      function insertStylesheetIntoRoot(root3, resource) {
         if (!(resource.state.loading & 4)) {
-          var precedences = precedencesByRoot.get(root2);
+          var precedences = precedencesByRoot.get(root3);
           if (precedences) var last = precedences.get(null);
           else {
             precedences = /* @__PURE__ */ new Map();
-            precedencesByRoot.set(root2, precedences);
-            for (var nodes = root2.querySelectorAll(
+            precedencesByRoot.set(root3, precedences);
+            for (var nodes = root3.querySelectorAll(
               "link[data-precedence],style[data-precedence]"
             ), i = 0; i < nodes.length; i++) {
               var node = nodes[i];
@@ -11960,7 +11960,7 @@
           last = onUnsuspend.bind(this);
           nodes.addEventListener("load", last);
           nodes.addEventListener("error", last);
-          i ? i.parentNode.insertBefore(nodes, i.nextSibling) : (root2 = 9 === root2.nodeType ? root2.head : root2, root2.insertBefore(nodes, root2.firstChild));
+          i ? i.parentNode.insertBefore(nodes, i.nextSibling) : (root3 = 9 === root3.nodeType ? root3.head : root3, root3.insertBefore(nodes, root3.firstChild));
           resource.state.loading |= 4;
         }
       }
@@ -12049,8 +12049,8 @@
       }
       function attemptContinuousHydration(fiber) {
         if (13 === fiber.tag || 31 === fiber.tag) {
-          var root2 = enqueueConcurrentRenderForLane(fiber, 67108864);
-          null !== root2 && scheduleUpdateOnFiber(root2, fiber, 67108864);
+          var root3 = enqueueConcurrentRenderForLane(fiber, 67108864);
+          null !== root3 && scheduleUpdateOnFiber(root3, fiber, 67108864);
           markRetryLaneIfNotHydrated(fiber, 67108864);
         }
       }
@@ -12058,8 +12058,8 @@
         if (13 === fiber.tag || 31 === fiber.tag) {
           var lane = requestUpdateLane();
           lane = getBumpedLaneForHydrationByLane(lane);
-          var root2 = enqueueConcurrentRenderForLane(fiber, lane);
-          null !== root2 && scheduleUpdateOnFiber(root2, fiber, lane);
+          var root3 = enqueueConcurrentRenderForLane(fiber, lane);
+          null !== root3 && scheduleUpdateOnFiber(root3, fiber, lane);
           markRetryLaneIfNotHydrated(fiber, lane);
         }
       }
@@ -12113,11 +12113,11 @@
                     if (fiber.current.memoizedState.isDehydrated) {
                       var lanes = getHighestPriorityLanes(fiber.pendingLanes);
                       if (0 !== lanes) {
-                        var root2 = fiber;
-                        root2.pendingLanes |= 2;
-                        for (root2.entangledLanes |= 2; lanes; ) {
+                        var root3 = fiber;
+                        root3.pendingLanes |= 2;
+                        for (root3.entangledLanes |= 2; lanes; ) {
                           var lane = 1 << 31 - clz32(lanes);
-                          root2.entanglements[1] |= lane;
+                          root3.entanglements[1] |= lane;
                           lanes &= ~lane;
                         }
                         ensureRootIsScheduled(fiber);
@@ -12127,7 +12127,7 @@
                     break;
                   case 31:
                   case 13:
-                    root2 = enqueueConcurrentRenderForLane(fiber, 2), null !== root2 && scheduleUpdateOnFiber(root2, fiber, 2), flushSyncWork$1(), markRetryLaneIfNotHydrated(fiber, 2);
+                    root3 = enqueueConcurrentRenderForLane(fiber, 2), null !== root3 && scheduleUpdateOnFiber(root3, fiber, 2), flushSyncWork$1(), markRetryLaneIfNotHydrated(fiber, 2);
                 }
               fiber = findInstanceBlockingEvent(nativeEvent);
               null === fiber && dispatchEventForPluginEventSystem(
@@ -12553,17 +12553,17 @@
         this._internalRoot = internalRoot;
       }
       ReactDOMHydrationRoot.prototype.render = ReactDOMRoot.prototype.render = function(children) {
-        var root2 = this._internalRoot;
-        if (null === root2) throw Error(formatProdErrorMessage(409));
-        var current = root2.current, lane = requestUpdateLane();
-        updateContainerImpl(current, lane, children, root2, null, null);
+        var root3 = this._internalRoot;
+        if (null === root3) throw Error(formatProdErrorMessage(409));
+        var current = root3.current, lane = requestUpdateLane();
+        updateContainerImpl(current, lane, children, root3, null, null);
       };
       ReactDOMHydrationRoot.prototype.unmount = ReactDOMRoot.prototype.unmount = function() {
-        var root2 = this._internalRoot;
-        if (null !== root2) {
+        var root3 = this._internalRoot;
+        if (null !== root3) {
           this._internalRoot = null;
-          var container = root2.containerInfo;
-          updateContainerImpl(root2.current, 2, null, root2, null, null);
+          var container = root3.containerInfo;
+          updateContainerImpl(root3.current, 2, null, root3, null, null);
           flushSyncWork$1();
           container[internalContainerInstanceKey] = null;
         }
@@ -12580,7 +12580,7 @@
           0 === i && attemptExplicitHydrationTarget(target);
         }
       };
-      var isomorphicReactPackageVersion$jscomp$inline_1840 = React.version;
+      var isomorphicReactPackageVersion$jscomp$inline_1840 = React2.version;
       if ("19.2.4" !== isomorphicReactPackageVersion$jscomp$inline_1840)
         throw Error(
           formatProdErrorMessage(
@@ -12747,12 +12747,157 @@
     }
   });
 
-  // pixellot-design-system.tsx
-  var import_react3 = __toESM(require_react());
+  // src/index.tsx
   var import_client = __toESM(require_client());
 
+  // src/theme.tsx
+  var import_react = __toESM(require_react());
+
+  // src/tokens.ts
+  var F = "'Red Hat Display', sans-serif";
+  var T = {
+    typography: {
+      sizes: { micro: 9, mini: 10, xxs: 11, caption: 12, body2: 13, xs: 14, sm: 15, base: 16, h3: 18, lg: 20, xl: 22, xxl: 24, h2: 26, h1: 28, jersey: 29, display: 32 },
+      weights: { regular: 400, medium: 500, semibold: 600, bold: 700, extraBold: 800 },
+      /* Named text styles — semantic shortcuts (use raw values since T is being constructed) */
+      notifText: { fontSize: 13, fontWeight: 400 },
+      menuItem: { fontSize: 16, fontWeight: 500 },
+      badgeLabel: { fontSize: 11, fontWeight: 700, textTransform: "uppercase" },
+      videoLabel: { fontSize: 14, fontWeight: 600 }
+    },
+    spacing: { xxs: 2, xs: 4, xs2: 6, sm: 8, sm2: 10, md: 12, md2: 14, lg: 16, lg2: 20, xl: 24, xxl: 32, xxxl: 34, hero: 48 },
+    sizes: {
+      inputHeight: 46,
+      buttonSm: 32,
+      buttonMd: 40,
+      buttonLg: 48,
+      tabHeight: 38,
+      chipHeight: 40,
+      topBarHeight: 72,
+      containerWidth: 398,
+      pageMaxWidth: 430,
+      heroHeight: 340,
+      jerseySize: 73,
+      logoSmall: 48
+    },
+    radii: { sm: 4, xs: 6, thumb: 8, logo: 10, badge: 12, card: 14, md: 16, lg: 20, chip: 26, button: 28, sheet: 30, xl: 32, pill: 9999 },
+    strokes: { thin: 0.67, regular: 1, medium: 1.33, thick: 1.7, bold: 2, heavy: 2.5, extraHeavy: 2.67 },
+    breakpoints: { mobile: 768, tablet: 1024 }
+  };
+  var LIGHT2 = {
+    primary: "#116DFF",
+    primaryHover: "#0D5AD4",
+    primaryActive: "#0A4AB0",
+    white: "#FFFFFF",
+    black: "#000000",
+    darkText: "#161616",
+    gray50: "#F5F5F5",
+    gray100: "#EDEDED",
+    gray200: "#C7CBD0",
+    gray300: "#DCDCDC",
+    gray400: "#979797",
+    gray500: "#6C6C6C",
+    grayOverlay: "rgba(237,237,238,0.6)",
+    grayOverlayHover: "rgba(237,237,238,0.8)",
+    heroBg: "#1A3B8A",
+    accent: "#E8332B",
+    jerseyRed: "#D0142C",
+    jerseyStroke: "#FFFFFF",
+    premiumYellow: "#FFE000",
+    premiumAmber: "#E7A610",
+    premiumHover: "#E7A610",
+    premiumActive: "#D4960E",
+    premiumDark: "#362F2C",
+    freeBadgeGreen: "#22C55E",
+    claimedPurple: "#8B5CF6",
+    infoBgPurple: "rgba(139,92,246,0.08)",
+    linkBlue: "#2563EB",
+    liveRed: "#EF4444",
+    highlightGray: "#6C6C6C",
+    cardBg: "#F3F4F6",
+    barRed: "#E8332B",
+    barGray: "#AFB6C1",
+    barTrack: "#EEEEEE",
+    dividerDark: "#444746",
+    successGreen: "#22C55E",
+    errorRed: "#EF4444",
+    overlay: "rgba(0,0,0,0.7)",
+    notifBadgeRed: "#EF4444",
+    highlightsBadgeBg: "#6C6C6C",
+    highlightsBadgeText: "#FFE000",
+    cardHoverBg: "#F0F0F0",
+    disabledTextOnDark: "rgba(255,255,255,0.35)",
+    dangerRed: "#EF4444",
+    selectedGreen: "#02814a",
+    errorBg: "#FEF2F2",
+    errorBorder: "rgba(239,68,68,0.15)"
+  };
+  var DARK = {
+    primary: "#3B8BFF",
+    primaryHover: "#5A9FFF",
+    primaryActive: "#2563EB",
+    white: "#1A1A1A",
+    black: "#FFFFFF",
+    darkText: "#E8E8E8",
+    gray50: "#262626",
+    gray100: "#333333",
+    gray200: "#444444",
+    gray300: "#555555",
+    gray400: "#888888",
+    gray500: "#A0A0A0",
+    grayOverlay: "rgba(255,255,255,0.08)",
+    grayOverlayHover: "rgba(255,255,255,0.12)",
+    heroBg: "#0F2557",
+    accent: "#E8332B",
+    jerseyRed: "#D0142C",
+    jerseyStroke: "#FFFFFF",
+    premiumYellow: "#FFE000",
+    premiumAmber: "#E7A610",
+    premiumHover: "#F5B800",
+    premiumActive: "#E7A610",
+    premiumDark: "#362F2C",
+    freeBadgeGreen: "#22C55E",
+    claimedPurple: "#A78BFA",
+    infoBgPurple: "rgba(167,139,250,0.1)",
+    linkBlue: "#60A5FA",
+    liveRed: "#EF4444",
+    highlightGray: "#A0A0A0",
+    cardBg: "#262626",
+    barRed: "#E8332B",
+    barGray: "#666666",
+    barTrack: "#333333",
+    dividerDark: "#555555",
+    successGreen: "#34D399",
+    errorRed: "#FF6B6B",
+    overlay: "rgba(0,0,0,0.85)",
+    notifBadgeRed: "#EF4444",
+    highlightsBadgeBg: "#444444",
+    highlightsBadgeText: "#FFE000",
+    cardHoverBg: "#333333",
+    disabledTextOnDark: "rgba(200,200,200,0.35)",
+    dangerRed: "#FF6B6B",
+    selectedGreen: "#02814a",
+    errorBg: "rgba(239,68,68,0.1)",
+    errorBorder: "rgba(239,68,68,0.25)"
+  };
+
+  // src/theme.tsx
+  var import_jsx_runtime = __toESM(require_jsx_runtime());
+  var ThemeCtx = (0, import_react.createContext)("light");
+  function useColors() {
+    const th = (0, import_react.useContext)(ThemeCtx);
+    return th === "dark" ? DARK : LIGHT2;
+  }
+  function ThemeProvider({ children, initialMode = "light" }) {
+    const [mode, setMode] = import_react.default.useState(initialMode);
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ThemeCtx.Provider, { value: mode, children });
+  }
+
+  // src/showcase/App.tsx
+  var import_react16 = __toESM(require_react());
+
   // node_modules/lucide-react/dist/esm/createLucideIcon.js
-  var import_react2 = __toESM(require_react());
+  var import_react3 = __toESM(require_react());
 
   // node_modules/lucide-react/dist/esm/shared/src/utils/mergeClasses.js
   var mergeClasses = (...classes) => classes.filter((className, index, array) => {
@@ -12775,7 +12920,7 @@
   };
 
   // node_modules/lucide-react/dist/esm/Icon.js
-  var import_react = __toESM(require_react());
+  var import_react2 = __toESM(require_react());
 
   // node_modules/lucide-react/dist/esm/defaultAttributes.js
   var defaultAttributes = {
@@ -12801,7 +12946,7 @@
   };
 
   // node_modules/lucide-react/dist/esm/Icon.js
-  var Icon = (0, import_react.forwardRef)(
+  var Icon = (0, import_react2.forwardRef)(
     ({
       color = "currentColor",
       size = 24,
@@ -12811,7 +12956,7 @@
       children,
       iconNode,
       ...rest
-    }, ref) => (0, import_react.createElement)(
+    }, ref) => (0, import_react2.createElement)(
       "svg",
       {
         ref,
@@ -12825,7 +12970,7 @@
         ...rest
       },
       [
-        ...iconNode.map(([tag, attrs]) => (0, import_react.createElement)(tag, attrs)),
+        ...iconNode.map(([tag, attrs]) => (0, import_react2.createElement)(tag, attrs)),
         ...Array.isArray(children) ? children : [children]
       ]
     )
@@ -12833,8 +12978,8 @@
 
   // node_modules/lucide-react/dist/esm/createLucideIcon.js
   var createLucideIcon = (iconName, iconNode) => {
-    const Component = (0, import_react2.forwardRef)(
-      ({ className, ...props }, ref) => (0, import_react2.createElement)(Icon, {
+    const Component = (0, import_react3.forwardRef)(
+      ({ className, ...props }, ref) => (0, import_react3.createElement)(Icon, {
         ref,
         iconNode,
         className: mergeClasses(
@@ -13023,9 +13168,12 @@
   ];
   var X = createLucideIcon("x", __iconNode18);
 
-  // pixellot-design-system.tsx
-  var import_jsx_runtime = __toESM(require_jsx_runtime());
-  var LIGHT = {
+  // src/primitives/inputs.tsx
+  var import_react5 = __toESM(require_react());
+
+  // src/utils.ts
+  var import_react4 = __toESM(require_react());
+  var LIGHT3 = {
     primary: "#116DFF",
     primaryHover: "#0D5AD4",
     primaryActive: "#0A4AB0",
@@ -13073,7 +13221,7 @@
     errorBg: "#FEF2F2",
     errorBorder: "rgba(239,68,68,0.15)"
   };
-  var DARK = {
+  var DARK2 = {
     primary: "#3B8BFF",
     primaryHover: "#5A9FFF",
     primaryActive: "#2563EB",
@@ -13121,24 +13269,16 @@
     errorBg: "rgba(239,68,68,0.1)",
     errorBorder: "rgba(239,68,68,0.25)"
   };
-  var ThemeCtx = (0, import_react3.createContext)("light");
-  function useColors() {
-    const th = (0, import_react3.useContext)(ThemeCtx);
-    return th === "dark" ? DARK : LIGHT;
-  }
-  function useThemeMode() {
-    return (0, import_react3.useContext)(ThemeCtx);
+  var ThemeCtx2 = (0, import_react4.createContext)("light");
+  function useColors2() {
+    const th = (0, import_react4.useContext)(ThemeCtx2);
+    return th === "dark" ? DARK2 : LIGHT3;
   }
   var focusRing = (c) => ({ outline: `2px solid ${c.primary}`, outlineOffset: 2 });
-  var T = {
+  var T3 = {
     typography: {
       sizes: { micro: 9, mini: 10, xxs: 11, caption: 12, body2: 13, xs: 14, sm: 15, base: 16, h3: 18, lg: 20, xl: 22, xxl: 24, h2: 26, h1: 28, jersey: 29, display: 32 },
-      weights: { regular: 400, medium: 500, semibold: 600, bold: 700, extraBold: 800 },
-      /* Named text styles — semantic shortcuts (use raw values since T is being constructed) */
-      notifText: { fontSize: 13, fontWeight: 400 },
-      menuItem: { fontSize: 16, fontWeight: 500 },
-      badgeLabel: { fontSize: 11, fontWeight: 700, textTransform: "uppercase" },
-      videoLabel: { fontSize: 14, fontWeight: 600 }
+      weights: { regular: 400, medium: 500, semibold: 600, bold: 700, extraBold: 800 }
     },
     spacing: { xxs: 2, xs: 4, xs2: 6, sm: 8, sm2: 10, md: 12, md2: 14, lg: 16, lg2: 20, xl: 24, xxl: 32, xxxl: 34, hero: 48 },
     sizes: {
@@ -13159,7 +13299,7 @@
     strokes: { thin: 0.67, regular: 1, medium: 1.33, thick: 1.7, bold: 2, heavy: 2.5, extraHeavy: 2.67 },
     breakpoints: { mobile: 768, tablet: 1024 }
   };
-  var F = "'Red Hat Display', sans-serif";
+  var F3 = "'Red Hat Display', sans-serif";
   var DEFAULTS = { jerseyRed: "#D0142C", heroBg: "#1A3B8A" };
   var JERSEY_PATH_73 = "M 30,6 Q 36.5,22 43,6 L 51,6 Q 51,28 59,28 L 59,62 Q 59,67 55,67 L 18,67 Q 14,67 14,62 L 14,28 Q 22,28 22,6 L 30,6 Z";
   function _isLightColor(hex) {
@@ -13170,30 +13310,13 @@
     const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
     return luminance > 0.55;
   }
-  function CopyBtn({ text }) {
-    const c = useColors();
-    const [ok, setOk] = (0, import_react3.useState)(false);
-    const [fo, setFo] = (0, import_react3.useState)(false);
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-      "button",
-      {
-        onClick: () => {
-          navigator.clipboard.writeText(text);
-          setOk(true);
-          setTimeout(() => setOk(false), 1500);
-        },
-        onFocus: () => setFo(true),
-        onBlur: () => setFo(false),
-        "aria-label": "Copy code",
-        style: { background: "none", border: "none", cursor: "pointer", color: ok ? c.successGreen : c.gray500, padding: T.spacing.xs, borderRadius: T.radii.sm, ...fo ? focusRing(c) : {} },
-        children: ok ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 16 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Copy, { size: 16 })
-      }
-    );
-  }
+
+  // src/primitives/inputs.tsx
+  var import_jsx_runtime2 = __toESM(require_jsx_runtime());
   function PInput({ placeholder, type = "text", error = false, errorMsg = "", disabled = false, readOnly = false, value, _forceState, ariaLabel }) {
-    const c = useColors();
-    const [show, setShow] = (0, import_react3.useState)(false);
-    const [fo, setFo] = (0, import_react3.useState)(false);
+    const c = useColors2();
+    const [show, setShow] = (0, import_react5.useState)(false);
+    const [fo, setFo] = (0, import_react5.useState)(false);
     var bg = c.gray100;
     var bd = "2px solid transparent";
     var clr = c.black;
@@ -13226,9 +13349,9 @@
     var isDis = disabled || _forceState === "disabled";
     var isRO = readOnly || _forceState === "readOnly";
     const errId = error && errorMsg ? "pinput-err-" + (placeholder || "").replace(/\s/g, "") : void 0;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { width: "100%" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "relative" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { width: "100%" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { position: "relative" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           "input",
           {
             type: type === "password" && show ? "text" : type,
@@ -13242,17 +13365,17 @@
             "aria-readonly": isRO || void 0,
             onFocus: () => setFo(true),
             onBlur: () => setFo(false),
-            style: { width: "100%", height: T.sizes.inputHeight, background: bg, border: bd, borderRadius: T.radii.lg, padding: `4px ${T.spacing.lg}px`, fontFamily: F, fontSize: T.typography.sizes.base, color: clr, outline: "none", boxSizing: "border-box", paddingRight: type === "password" ? 44 : T.spacing.lg, cursor: cur }
+            style: { width: "100%", height: T3.sizes.inputHeight, background: bg, border: bd, borderRadius: T3.radii.lg, padding: `4px ${T3.spacing.lg}px`, fontFamily: F3, fontSize: T3.typography.sizes.base, color: clr, outline: "none", boxSizing: "border-box", paddingRight: type === "password" ? 44 : T3.spacing.lg, cursor: cur }
           }
         ),
-        type === "password" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: () => setShow(!show), disabled: isDis, "aria-label": show ? "Hide password" : "Show password", style: { position: "absolute", right: 14, top: 14, background: "none", border: "none", cursor: isDis ? "not-allowed" : "pointer", color: iconClr, display: "flex", borderRadius: T.radii.sm }, children: show ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EyeOff, { size: 18 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 18 }) })
+        type === "password" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { onClick: () => setShow(!show), disabled: isDis, "aria-label": show ? "Hide password" : "Show password", style: { position: "absolute", right: 14, top: 14, background: "none", border: "none", cursor: isDis ? "not-allowed" : "pointer", color: iconClr, display: "flex", borderRadius: T3.radii.sm }, children: show ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(EyeOff, { size: 18 }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Eye, { size: 18 }) })
       ] }),
-      error && errorMsg ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { id: errId, style: { fontFamily: F, fontSize: T.typography.sizes.caption, color: c.errorRed, marginTop: T.spacing.xs, display: "block", paddingLeft: T.spacing.lg }, children: errorMsg }) : null
+      error && errorMsg ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { id: errId, style: { fontFamily: F3, fontSize: T3.typography.sizes.caption, color: c.errorRed, marginTop: T3.spacing.xs, display: "block", paddingLeft: T3.spacing.lg }, children: errorMsg }) : null
     ] });
   }
   function PSelect({ placeholder, error = false, errorMsg = "", disabled = false, _forceState, ariaLabel }) {
-    const c = useColors();
-    const [fo, setFo] = (0, import_react3.useState)(false);
+    const c = useColors2();
+    const [fo, setFo] = (0, import_react5.useState)(false);
     var bg = c.gray100;
     var bd = "2px solid transparent";
     var clr = c.gray400;
@@ -13275,9 +13398,9 @@
     }
     var isDis = disabled || _forceState === "disabled";
     const errId = error && errorMsg ? "pselect-err-" + (placeholder || "").replace(/\s/g, "") : void 0;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { width: "100%" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "relative" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { width: "100%" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { position: "relative" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
           "select",
           {
             "aria-label": ariaLabel || placeholder,
@@ -13286,20 +13409,24 @@
             "aria-describedby": errId,
             onFocus: () => setFo(true),
             onBlur: () => setFo(false),
-            style: { width: "100%", height: T.sizes.inputHeight, background: bg, border: bd, borderRadius: T.radii.lg, padding: `4px ${T.spacing.lg}px`, fontFamily: F, fontSize: T.typography.sizes.base, color: clr, appearance: "none", outline: "none", boxSizing: "border-box", cursor: cur },
-            children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { children: placeholder })
+            style: { width: "100%", height: T3.sizes.inputHeight, background: bg, border: bd, borderRadius: T3.radii.lg, padding: `4px ${T3.spacing.lg}px`, fontFamily: F3, fontSize: T3.typography.sizes.base, color: clr, appearance: "none", outline: "none", boxSizing: "border-box", cursor: cur },
+            children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("option", { children: placeholder })
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronDown, { size: T.typography.sizes.base, style: { position: "absolute", right: T.spacing.lg, top: "50%", transform: "translateY(-50%)", color: chevClr, pointerEvents: "none" } })
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ChevronDown, { size: T3.typography.sizes.base, style: { position: "absolute", right: T3.spacing.lg, top: "50%", transform: "translateY(-50%)", color: chevClr, pointerEvents: "none" } })
       ] }),
-      error && errorMsg ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { id: errId, style: { fontFamily: F, fontSize: T.typography.sizes.caption, color: c.errorRed, marginTop: T.spacing.xs, display: "block", paddingLeft: T.spacing.lg }, children: errorMsg }) : null
+      error && errorMsg ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { id: errId, style: { fontFamily: F3, fontSize: T3.typography.sizes.caption, color: c.errorRed, marginTop: T3.spacing.xs, display: "block", paddingLeft: T3.spacing.lg }, children: errorMsg }) : null
     ] });
   }
+
+  // src/primitives/buttons.tsx
+  var import_react6 = __toESM(require_react());
+  var import_jsx_runtime3 = __toESM(require_jsx_runtime());
   function PBtn({ children, variant = "primary", size = "md", leadingIcon, trailingIcon, iconOnly = false, fullWidth = true, disabled = false, _forceState, style: extraStyle = {}, onClick }) {
-    const c = useColors();
-    const [hovered, setHovered] = (0, import_react3.useState)(false);
-    const [pressed, setPressed] = (0, import_react3.useState)(false);
-    const [fo, setFo] = (0, import_react3.useState)(false);
+    const c = useColors2();
+    const [hovered, setHovered] = (0, import_react6.useState)(false);
+    const [pressed, setPressed] = (0, import_react6.useState)(false);
+    const [fo, setFo] = (0, import_react6.useState)(false);
     const stateMap = {
       primary: {
         default: { background: c.primary, color: c.white, border: "none" },
@@ -13314,10 +13441,10 @@
         disabled: { background: c.grayOverlay, color: c.disabledTextOnDark, border: "none" }
       },
       social: {
-        default: { background: c.white, color: c.black, border: `${T.strokes.thin}px solid ${c.gray200}` },
-        hover: { background: c.gray50, color: c.black, border: `${T.strokes.thin}px solid ${c.gray200}` },
-        active: { background: c.gray100, color: c.black, border: `${T.strokes.thin}px solid ${c.gray200}` },
-        disabled: { background: c.white, color: c.disabledTextOnDark, border: `${T.strokes.thin}px solid ${c.grayOverlay}` }
+        default: { background: c.white, color: c.black, border: `${T3.strokes.thin}px solid ${c.gray200}` },
+        hover: { background: c.gray50, color: c.black, border: `${T3.strokes.thin}px solid ${c.gray200}` },
+        active: { background: c.gray100, color: c.black, border: `${T3.strokes.thin}px solid ${c.gray200}` },
+        disabled: { background: c.white, color: c.disabledTextOnDark, border: `${T3.strokes.thin}px solid ${c.grayOverlay}` }
       },
       muted: {
         default: { background: c.gray50, color: c.darkText, border: "none" },
@@ -13345,16 +13472,16 @@
       }
     };
     const sizes = {
-      sm: { height: T.sizes.buttonSm, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.semibold, borderRadius: T.radii.lg, padding: `0 ${T.spacing.lg}px`, gap: T.spacing.xs2 },
-      md: { height: T.sizes.buttonMd, fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.medium, borderRadius: T.radii.lg, padding: `0 ${T.spacing.xl}px`, gap: T.spacing.sm },
-      lg: { height: T.sizes.buttonLg, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, borderRadius: T.radii.button, padding: "0 40px", gap: T.spacing.sm }
+      sm: { height: T3.sizes.buttonSm, fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.semibold, borderRadius: T3.radii.lg, padding: `0 ${T3.spacing.lg}px`, gap: T3.spacing.xs2 },
+      md: { height: T3.sizes.buttonMd, fontSize: T3.typography.sizes.sm, fontWeight: T3.typography.weights.medium, borderRadius: T3.radii.lg, padding: `0 ${T3.spacing.xl}px`, gap: T3.spacing.sm },
+      lg: { height: T3.sizes.buttonLg, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.bold, borderRadius: T3.radii.button, padding: "0 40px", gap: T3.spacing.sm }
     };
     const states = stateMap[variant] || stateMap.primary;
     const state = _forceState || (disabled ? "disabled" : pressed ? "active" : hovered ? "hover" : "default");
     const v = states[state] || states.default;
     const s = sizes[size] || sizes.md;
     const isLink = variant === "link" || variant === "danger";
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
       "button",
       {
         disabled,
@@ -13373,7 +13500,7 @@
           height: s.height,
           minWidth: iconOnly ? s.height : void 0,
           borderRadius: iconOnly ? "50%" : s.borderRadius,
-          fontFamily: F,
+          fontFamily: F3,
           fontSize: s.fontSize,
           fontWeight: s.fontWeight,
           cursor: disabled ? "not-allowed" : "pointer",
@@ -13389,23 +13516,23 @@
           ...extraStyle
         },
         children: [
-          leadingIcon && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { display: "flex", alignItems: "center" }, children: leadingIcon }),
-          iconOnly ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { display: "flex", alignItems: "center" }, children }) : children,
-          trailingIcon && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { display: "flex", alignItems: "center" }, children: trailingIcon })
+          leadingIcon && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { style: { display: "flex", alignItems: "center" }, children: leadingIcon }),
+          iconOnly ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { style: { display: "flex", alignItems: "center" }, children }) : children,
+          trailingIcon && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { style: { display: "flex", alignItems: "center" }, children: trailingIcon })
         ]
       }
     );
   }
   function PTabButton({ label, isActive, disabled = false, onClick, variant, accentColor, _forceState }) {
-    const c = useColors();
-    const [hovered, setHovered] = (0, import_react3.useState)(false);
-    const [pressed, setPressed] = (0, import_react3.useState)(false);
+    const c = useColors2();
+    const [hovered, setHovered] = (0, import_react6.useState)(false);
+    const [pressed, setPressed] = (0, import_react6.useState)(false);
     const isDis = disabled || _forceState === "disabled";
     const state = isDis ? "disabled" : _forceState || (pressed ? "active" : hovered ? "hover" : "default");
     if (variant === "pill") {
       const bg = isDis ? "transparent" : isActive ? c.white : state === "active" ? c.gray300 : state === "hover" ? c.gray200 : "transparent";
       const clr2 = isDis ? c.gray300 : isActive ? c.black : state === "hover" || state === "active" ? c.gray500 : c.gray400;
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         "button",
         {
           onClick: isDis ? void 0 : onClick,
@@ -13420,14 +13547,14 @@
           "aria-selected": isActive,
           "aria-disabled": isDis || void 0,
           disabled: isDis,
-          style: { flex: 1, height: T.sizes.tabHeight, border: "none", borderRadius: T.radii.md, cursor: isDis ? "not-allowed" : "pointer", fontFamily: F, fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.medium, transition: "all 0.15s", background: bg, color: clr2, boxShadow: isActive && !isDis ? "0 1px 3px rgba(0,0,0,0.1)" : "none", opacity: isDis ? 0.5 : 1 },
+          style: { flex: 1, height: T3.sizes.tabHeight, border: "none", borderRadius: T3.radii.md, cursor: isDis ? "not-allowed" : "pointer", fontFamily: F3, fontSize: T3.typography.sizes.sm, fontWeight: T3.typography.weights.medium, transition: "all 0.15s", background: bg, color: clr2, boxShadow: isActive && !isDis ? "0 1px 3px rgba(0,0,0,0.1)" : "none", opacity: isDis ? 0.5 : 1 },
           children: label
         }
       );
     }
     const accent = accentColor || c.errorRed;
     const clr = isDis ? c.gray300 : isActive ? c.black : state === "active" ? c.gray500 : state === "hover" ? c.gray500 : c.gray400;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       "button",
       {
         onClick: isDis ? void 0 : onClick,
@@ -13442,419 +13569,39 @@
         "aria-selected": isActive,
         "aria-disabled": isDis || void 0,
         disabled: isDis,
-        style: { flex: "0 0 auto", background: "none", border: "none", cursor: isDis ? "not-allowed" : "pointer", fontFamily: F, fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.medium, color: clr, padding: `${T.spacing.lg}px 0`, position: "relative", transition: "color 0.15s", borderBottom: isActive && !isDis ? `3px solid ${accent}` : state === "hover" ? `2px solid ${accent}55` : "none", marginBottom: "-1px", opacity: isDis ? 0.5 : 1 },
+        style: { flex: "0 0 auto", background: "none", border: "none", cursor: isDis ? "not-allowed" : "pointer", fontFamily: F3, fontSize: T3.typography.sizes.sm, fontWeight: T3.typography.weights.medium, color: clr, padding: `${T3.spacing.lg}px 0`, position: "relative", transition: "color 0.15s", borderBottom: isActive && !isDis ? `3px solid ${accent}` : state === "hover" ? `2px solid ${accent}55` : "none", marginBottom: "-1px", opacity: isDis ? 0.5 : 1 },
         children: label
       }
     );
   }
   function PTabs({ tabs, active, onSelect, variant = "pill", accentColor, _forceState }) {
-    const colors = useColors();
+    const colors = useColors2();
     if (variant === "pill") {
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { role: "tablist", style: { display: "flex", background: colors.gray100, borderRadius: T.radii.md, padding: T.spacing.xs, width: "100%" }, children: tabs.map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabButton, { label: t.label, isActive: active === t.value, disabled: t.disabled, onClick: () => onSelect(t.value), variant: "pill", _forceState: !active || active !== t.value ? _forceState : void 0 }, t.value)) });
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { role: "tablist", style: { display: "flex", background: colors.gray100, borderRadius: T3.radii.md, padding: T3.spacing.xs, width: "100%" }, children: tabs.map((t) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PTabButton, { label: t.label, isActive: active === t.value, disabled: t.disabled, onClick: () => onSelect(t.value), variant: "pill", _forceState: !active || active !== t.value ? _forceState : void 0 }, t.value)) });
     }
     const accent = accentColor || colors.errorRed;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { role: "tablist", style: { display: "flex", gap: T.spacing.xl, padding: `0 ${T.spacing.lg}px`, borderBottom: `1px solid ${colors.gray100}`, width: "100%", overflowX: "auto" }, children: tabs.map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabButton, { label: t.label, isActive: active === t.value, disabled: t.disabled, onClick: () => onSelect(t.value), variant: "underline", accentColor: accent, _forceState: !active || active !== t.value ? _forceState : void 0 }, t.value)) });
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { role: "tablist", style: { display: "flex", gap: T3.spacing.xl, padding: `0 ${T3.spacing.lg}px`, borderBottom: `1px solid ${colors.gray100}`, width: "100%", overflowX: "auto" }, children: tabs.map((t) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PTabButton, { label: t.label, isActive: active === t.value, disabled: t.disabled, onClick: () => onSelect(t.value), variant: "underline", accentColor: accent, _forceState: !active || active !== t.value ? _forceState : void 0 }, t.value)) });
   }
   function PTextDivider({ text = "OR" }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.md, width: "100%" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: 1, height: T.strokes.thin, background: c.gray200 } }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.medium, color: c.gray400 }, children: text }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: 1, height: T.strokes.thin, background: c.gray200 } })
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T3.spacing.md, width: "100%" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { style: { flex: 1, height: T3.strokes.thin, background: c.gray200 } }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { style: { fontFamily: F3, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.medium, color: c.gray400 }, children: text }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { style: { flex: 1, height: T3.strokes.thin, background: c.gray200 } })
     ] });
   }
   function PLink({ children, variant = "muted" }) {
-    const colors = useColors();
+    const colors = useColors2();
     const c = { muted: { color: colors.gray400 }, accent: { color: colors.accent, textDecoration: "underline" }, primary: { color: colors.primary } };
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, cursor: "pointer", background: "none", border: "none", padding: 0, ...c[variant] }, children });
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { style: { fontFamily: F3, fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.medium, cursor: "pointer", background: "none", border: "none", padding: 0, ...c[variant] }, children });
   }
-  function PJersey({ number, selected, onClick, color = DEFAULTS.jerseyRed }) {
-    const c = useColors();
-    const [fo, setFo] = (0, import_react3.useState)(false);
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { onClick, "aria-label": "Jersey number " + number, "aria-pressed": selected, onFocus: () => setFo(true), onBlur: () => setFo(false), style: { position: "relative", width: 73, height: 73, background: "none", border: "none", cursor: "pointer", padding: 0, transition: "transform 0.15s", transform: selected ? "scale(1.1)" : "scale(1)", borderRadius: T.radii.md, ...fo ? focusRing(c) : {} }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { viewBox: "0 0 73 73", fill: "none", style: { width: "100%", height: "100%" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "path",
-        {
-          d: JERSEY_PATH_73,
-          fill: color,
-          stroke: selected ? c.successGreen : _isLightColor(color) ? c.gray300 : c.jerseyStroke,
-          strokeWidth: selected ? T.strokes.heavy : T.strokes.thick
-        }
-      ) }),
-      selected && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", top: -4, right: -4, width: 20, height: 20, background: c.successGreen, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 12, color: c.jerseyStroke, strokeWidth: 3 }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-40%)", fontFamily: F, fontSize: T.typography.sizes.jersey, fontWeight: T.typography.weights.bold, color: _isLightColor(color) ? c.darkText : c.jerseyStroke, pointerEvents: "none" }, children: number })
-    ] });
-  }
-  function PBadge({ variant = "live" }) {
-    const c = useColors();
-    const variants = {
-      live: { background: c.liveRed, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.semibold, textTransform: "uppercase", label: "LIVE", dot: true },
-      premium: { background: c.premiumAmber, fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, textTransform: "uppercase", label: "Premium", dot: false },
-      free: { background: c.freeBadgeGreen, fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, textTransform: "uppercase", label: "Free", dot: false },
-      claimed: { background: c.claimedPurple, fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, textTransform: "uppercase", label: "Claimed", dot: false },
-      highlights: { background: c.highlightsBadgeBg, fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, textTransform: "uppercase", label: "HIGHLIGHTS", dot: false, icon: true }
-    };
-    const v = variants[variant] || variants.live;
-    var badgeColor = variant === "highlights" ? c.highlightsBadgeText : c.white;
-    var badgeBorder = variant === "highlights" ? `${T.strokes.thin}px solid ${c.highlightsBadgeText}` : "none";
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.xs, background: v.background, color: badgeColor, padding: `${T.spacing.xs}px ${T.spacing.md}px`, borderRadius: T.radii.badge, fontSize: v.fontSize, fontWeight: v.fontWeight, textTransform: v.textTransform, border: badgeBorder }, children: [
-      v.dot && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("style", { children: `@keyframes liveDotFlicker { 0%,100%{opacity:1} 50%{opacity:0.2} }` }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 6, height: 6, borderRadius: "50%", background: c.white, animation: "liveDotFlicker 1.2s ease-in-out infinite" } })
-      ] }),
-      v.icon && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { size: 10, fill: c.premiumYellow, color: c.premiumYellow }),
-      v.label
-    ] });
-  }
-  var PLiveBadge = () => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBadge, { variant: "live" });
-  function PTeamRow({ name, score, isWinner = true, logoSize = 28, fontSize = 16, fontWeight = 500, gap = 12 }) {
-    const c = useColors();
-    const color = isWinner ? c.black : c.gray500;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", height: logoSize }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap, flex: 1 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: logoSize, name }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize, fontWeight, color }, children: name })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize, fontWeight, color }, children: score })
-    ] });
-  }
-  function PLiveGameCard() {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { minWidth: 240, flex: 1, borderRadius: T.radii.card, overflow: "hidden", flexShrink: 0 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { background: c.gray200, borderRadius: `${T.radii.card}px ${T.radii.card}px 0 0` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: `${T.spacing.md}px ${T.spacing.lg}px` }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLiveBadge, {}),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, color: c.black }, children: "21 NOV, 2024" })
-      ] }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { background: c.gray100, borderRadius: `0 0 ${T.radii.card}px ${T.radii.card}px` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", alignItems: "center", padding: `${T.spacing.md}px ${T.spacing.lg}px` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.sm, width: "100%" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamRow, { name: "M. Kiryat Gat", score: "87", isWinner: true }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamRow, { name: "H. Haifa", score: "79", isWinner: false })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.mini, fontWeight: T.typography.weights.medium, color: c.gray400 }, children: "Liga Leumit (Winner League)" }) })
-      ] }) }) })
-    ] });
-  }
-  function PGameResultCard() {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.gray100, borderRadius: T.radii.card, display: "flex", gap: T.spacing.lg, marginBottom: T.spacing.md, height: 116, overflow: "hidden" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 72, flexShrink: 0, background: c.gray200, borderRadius: `${T.radii.card}px 0 0 ${T.radii.card}px`, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.black, lineHeight: "24px" }, children: "20" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.bold, color: c.black, lineHeight: "16px" }, children: "NOV" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.mini, fontWeight: T.typography.weights.regular, color: c.black, lineHeight: "15px" }, children: "2024" })
-      ] }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: T.spacing.sm, paddingRight: T.spacing.lg }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamRow, { name: "Maccabi Kiryat Gat", score: "89", isWinner: true, logoSize: 27, fontWeight: 400, gap: 8 }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamRow, { name: "Ironi Nahariya", score: "77", isWinner: false, logoSize: 27, fontWeight: 400, gap: 8 }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, fontWeight: T.typography.weights.regular, color: c.gray400 }, children: "Liga Leumit (Winner League)" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBadge, { variant: "highlights" })
-        ] })
-      ] })
-    ] });
-  }
-  function PScoreCard() {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { background: c.gray100, borderRadius: T.radii.card, padding: T.spacing.lg, width: "100%", maxWidth: 398, boxSizing: "border-box" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.sm }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: T.spacing.sm }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.md }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 44, height: 44, minWidth: 44, borderRadius: "50%", background: c.white, flexShrink: 0 } }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: `clamp(${T.typography.sizes.xl}px, 6vw, ${T.typography.sizes.h1}px)`, fontWeight: T.typography.weights.regular, color: c.black }, children: "89" })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.regular, color: c.black, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }, children: "M. Kiryat Gat" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.regular, color: c.gray500 }, children: "1st" })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: `0 ${T.spacing.xs}px` }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.regular, color: c.gray500 }, children: "Final" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.regular, color: c.gray500 }, children: "20 NOV 2024" })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: T.spacing.sm }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.md }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: `clamp(${T.typography.sizes.xl}px, 6vw, ${T.typography.sizes.h1}px)`, fontWeight: T.typography.weights.regular, color: c.gray500 }, children: "77" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 44, height: 44, minWidth: 44, borderRadius: "50%", background: c.white, flexShrink: 0 } })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.regular, color: c.gray500, textAlign: "right", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }, children: "I. Nahariya" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.regular, color: c.gray500, textAlign: "right" }, children: "5th" })
-      ] })
-    ] }) });
-  }
-  function LockSvg({ size = 11, fill = LIGHT.premiumYellow }) {
-    const w = size;
-    const h = size * (10 / 8);
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { width: w, height: h, viewBox: "0 0 8 10", fill: "none", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { clipRule: "evenodd", d: "M7.02621 4.06889H6.73849L6.73733 2.70111C6.73616 1.21111 5.46535 -0.00110943 3.90332 1.67782e-06C2.3413 0.00111279 1.07048 1.21333 1.07164 2.70333L1.07397 4.07111H0.971466C0.434483 4.07222 -0.00115988 4.48778 4.94171e-06 5V9.07222C4.94171e-06 9.58444 0.436813 10 0.973795 10L7.02853 9.99667C7.56552 9.99667 8.00116 9.58111 8 9.06889V4.99556C8 4.48333 7.56319 4.06889 7.02621 4.06889ZM2.11765 4.07111L2.11532 2.70333C2.11532 1.76222 2.91672 0.996668 3.90332 0.995557C4.88992 0.995557 5.69248 1.76111 5.69248 2.70111L5.69481 4.06889L2.11765 4.07111Z", fill, fillRule: "evenodd" }) });
-  }
-  function PVideoThumbnail({ orientation = "landscape", locked = false, duration = "1:42:15", title = "Full Game", subtitle = "Free", showJerseyBadge = false, jerseyNumber = 1, jerseyLabel = "Player Highlights", jerseyColor = DEFAULTS.jerseyRed, thumbnailUrl }) {
-    const c = useColors();
-    const isVert = orientation === "vertical";
-    const container = isVert ? { borderRadius: T.radii.badge, width: 108, height: 192 } : { borderRadius: T.radii.card, width: "100%", maxWidth: 398, aspectRatio: "16/9", marginBottom: T.spacing.md };
-    const badge = isVert ? { top: 7, left: 6, padding: "2px 4px" } : { top: 8, left: 8, padding: "2px 8px" };
-    const icon = isVert ? { top: 6, right: 6 } : { top: 8, right: 8 };
-    const grad = isVert ? { background: "linear-gradient(to top, rgba(0,0,0,0.5) 49%, rgba(114,123,132,0) 100%)", padding: T.spacing.sm } : { background: "linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0) 100%)", padding: T.spacing.md };
-    const titleStyle = isVert ? { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.bold, color: c.white, lineHeight: "16px" } : { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.bold, color: c.white, lineHeight: "18px" };
-    const subStyle = isVert ? { fontSize: T.typography.sizes.mini, fontWeight: T.typography.weights.bold, color: c.gray300, lineHeight: "15px", marginTop: T.spacing.xxs } : { fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.regular, color: c.gray300, lineHeight: "16.5px", marginTop: T.spacing.xxs };
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "relative", overflow: "hidden", background: c.heroBg, ...container }, children: [
-      thumbnailUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: thumbnailUrl, alt: "", style: { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", zIndex: 0 } }),
-      locked && !thumbnailUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", inset: 0, background: "linear-gradient(135deg, #2a4a7f 0%, #1a3a5c 40%, #3a6a9f 70%, #1a2a4a 100%)", filter: "blur(8px)", transform: "scale(1.1)", zIndex: 0 } }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", ...badge, background: "rgba(0,0,0,0.55)", borderRadius: T.radii.pill, zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontWeight: T.typography.weights.medium, fontSize: T.typography.sizes.xxs, color: "#FFFFFF", lineHeight: 1 }, children: duration }) }),
-      !showJerseyBadge && (locked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", ...icon, width: 28, height: 28, background: c.premiumDark, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2, border: `${T.strokes.medium}px solid ${c.premiumYellow}`, boxSizing: "border-box" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockSvg, { size: 11, fill: c.premiumYellow }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", ...icon, width: 28, height: 28, borderRadius: "50%", background: c.gray500, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { size: 12, color: c.jerseyStroke, fill: c.jerseyStroke }) })),
-      showJerseyBadge && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { size: 16, color: "#FFFFFF", fill: "#FFFFFF" }) }),
-      showJerseyBadge ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, rgba(0,0,0,0.5) 49%, rgba(114,123,132,0) 100%)", padding: "12px 8px", zIndex: 1, display: "flex", alignItems: "flex-end" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.xs2, alignItems: "center" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { width: 19.25, height: 28, position: "relative", flexShrink: 0 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { viewBox: "12 4 50 66", fill: "none", preserveAspectRatio: "xMidYMid meet", style: { position: "absolute", inset: 0, width: "100%", height: "100%", filter: "drop-shadow(0px 0.7px 3.5px rgba(5,27,68,0.2))" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: JERSEY_PATH_73, fill: jerseyColor, stroke: "white", strokeWidth: "2" }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-46%)", fontFamily: F, fontWeight: T.typography.weights.bold, fontSize: T.typography.sizes.mini, color: _isLightColor(jerseyColor) ? c.darkText : "#fff", lineHeight: 1 }, children: jerseyNumber })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontWeight: T.typography.weights.bold, fontSize: T.typography.sizes.caption, color: c.gray200, lineHeight: "14px" }, children: jerseyLabel })
-      ] }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "absolute", bottom: 0, left: 0, right: 0, ...grad, zIndex: 1 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: titleStyle, children: title }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: subStyle, children: subtitle })
-      ] })
-    ] });
-  }
-  function PSectionHeader({ title, seeAll, onClick, titleSize }) {
-    const c = useColors();
-    const fs = titleSize ?? T.typography.sizes.base;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", paddingRight: 0, marginBottom: T.spacing.md }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { style: { margin: 0, fontSize: fs, fontWeight: T.typography.weights.bold, color: c.black }, children: title }),
-      seeAll && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "link", size: "sm", fullWidth: false, style: { fontSize: T.typography.sizes.body2 }, onClick, children: "See all >" })
-    ] });
-  }
-  function PSeeAllLink({ label = "See all", onClick }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { onClick, "aria-label": label, style: { background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: T.spacing.xs, fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.medium, color: c.linkBlue }, children: [
-      label,
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { "aria-hidden": "true", width: "8", height: "8", viewBox: "0 0 8 8", fill: "none", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M2 1.5L5 4L2 6.5", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }) })
-    ] });
-  }
-  function PTeamStatsBar({ label, leftVal, rightVal }) {
-    const c = useColors();
-    const total = leftVal + rightVal;
-    const leftPercent = leftVal / total * 100;
-    const rightPercent = rightVal / total * 100;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "16px 20px", fontFamily: F }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.sm2, marginBottom: T.spacing.sm2 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.darkText, width: 28, textAlign: "left", flexShrink: 0 }, children: leftVal }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: 1, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.darkText, textAlign: "center" }, children: label }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.darkText, width: 28, textAlign: "right", flexShrink: 0 }, children: rightVal })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.sm2 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { flex: 1, height: 8, background: c.barTrack, borderRadius: T.radii.sm, display: "flex", justifyContent: "flex-end" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: `${leftPercent}%`, height: 8, background: c.barRed, borderRadius: T.radii.sm } }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { flex: 1, height: 8, background: c.barTrack, borderRadius: T.radii.sm, display: "flex", justifyContent: "flex-start" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: `${rightPercent}%`, height: 8, background: c.barGray, borderRadius: T.radii.sm } }) })
-      ] })
-    ] });
-  }
-  function PPaywallOverlay({ children, label = "Buy Team Stats" }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "relative", borderRadius: T.radii.card, overflow: "hidden" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { filter: "blur(4px)", opacity: 0.5, pointerEvents: "none" }, children }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", inset: 0, background: "rgba(0,0,0,0.08)", borderRadius: T.radii.card, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.lg2 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.md }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 56, height: 56, borderRadius: "50%", background: c.premiumDark, border: `${T.strokes.extraHeavy}px solid ${c.premiumYellow}`, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockSvg, { size: 22, fill: c.premiumYellow }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.semibold, color: c.darkText, margin: 0, fontFamily: F }, children: label })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "premium", size: "lg", fullWidth: false, style: { width: 160, fontWeight: T.typography.weights.semibold, borderRadius: T.radii.sheet }, children: "Buy Now" })
-      ] }) })
-    ] });
-  }
-  function PTeamStatsPaywall() {
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PPaywallOverlay, { label: "Buy Team Stats", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsBar, { label: "Points", leftVal: 87, rightVal: 79 }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsBar, { label: "Field Goal %", leftVal: 48, rightVal: 42 }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsBar, { label: "3-Pointers", leftVal: 12, rightVal: 8 }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsBar, { label: "Rebounds", leftVal: 35, rightVal: 29 }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsBar, { label: "Assists", leftVal: 22, rightVal: 18 }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsBar, { label: "Steals", leftVal: 9, rightVal: 6 }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsBar, { label: "Blocks", leftVal: 4, rightVal: 3 }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsBar, { label: "Turnovers", leftVal: 12, rightVal: 15 })
-    ] });
-  }
-  function PGameLeaders() {
-    const c = useColors();
-    const stats = [
-      { label: "Points", left: { num: "#22", detail: "22 PTS, 9 REB" }, right: { num: "#9", detail: "19 PTS, 6 REB" } },
-      { label: "Rebounds", left: { num: "#22", detail: "9 REB, 4 OFF" }, right: { num: "#11", detail: "8 REB, 3 OFF" } },
-      { label: "Assists", left: { num: "#11", detail: "7 AST, 30 MIN" }, right: { num: "#7", detail: "6 AST, 28 MIN" } }
-    ];
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "16px 20px", fontFamily: F }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.bold, color: c.darkText, margin: "0 0 10px" }, children: "Game Leaders" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: T.spacing.sm2 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 44, height: 44, borderRadius: "50%", background: c.gray100, border: `${T.strokes.thin}px solid ${c.gray300}`, overflow: "hidden" } }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 44, height: 44, borderRadius: "50%", background: c.gray100, border: `${T.strokes.thin}px solid ${c.gray300}`, overflow: "hidden" } })
-      ] }),
-      stats.map((s, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: T.spacing.sm2 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, textAlign: "left" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.bold, color: c.darkText, margin: 0 }, children: s.left.num }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, color: c.gray500, margin: 0 }, children: s.left.detail })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { flex: 1, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", height: 36 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.darkText, margin: 0 }, children: s.label }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, textAlign: "right" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.bold, color: c.darkText, margin: 0 }, children: s.right.num }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, color: c.gray500, margin: 0 }, children: s.right.detail })
-          ] })
-        ] }),
-        i < stats.length - 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { color: c.dividerDark, style: { marginBottom: T.spacing.sm2 } })
-      ] }, s.label)),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", justifyContent: "center", marginTop: T.spacing.sm2 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "muted", size: "sm", fullWidth: false, trailingIcon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronDown, { size: 14 }), style: { borderRadius: T.radii.sheet, padding: "8px 28px" }, children: "See All" }) })
-    ] });
-  }
-  function PPlayerStatsTable() {
-    const c = useColors();
-    const [activeTeam, setActiveTeam] = (0, import_react3.useState)(0);
-    const headers = ["Player", "MIN", "PTS", "REB", "AST"];
-    const rows = [
-      ["#5", "32", "18", "7", "3"],
-      ["#3", "28", "14", "4", "5"],
-      ["#22", "35", "22", "9", "2"],
-      ["#13", "26", "8", "3", "1"],
-      ["#11", "30", "16", "5", "7"],
-      ["#23", "18", "4", "2", "1"],
-      ["#8", "24", "10", "3", "2"],
-      ["#7", "15", "6", "2", "3"]
-    ];
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "16px 20px", fontFamily: F }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", marginBottom: T.spacing.md2 }, children: ["Maccabi Kiryat Gat", "Ironi Nahariya"].map((team, i) => {
-        return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          "button",
-          {
-            onClick: () => setActiveTeam(i),
-            "aria-label": `Show ${team} stats`,
-            "aria-pressed": activeTeam === i,
-            onFocus: (e) => {
-              e.currentTarget.style.outline = `2px solid ${c.primary}`;
-            },
-            onBlur: (e) => {
-              e.currentTarget.style.outline = "none";
-            },
-            style: { flex: 1, background: "none", border: "none", borderBottom: activeTeam === i ? `2px solid ${c.jerseyRed}` : `2px solid ${c.barTrack}`, padding: `0 0 ${T.spacing.sm}px`, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: activeTeam === i ? c.darkText : c.gray400, cursor: "pointer", fontFamily: F, borderRadius: T.radii.sm, outline: "none", outlineOffset: 2 },
-            children: team
-          },
-          team
-        );
-      }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", alignItems: "center", marginBottom: T.spacing.sm2 }, children: headers.map((h, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, color: c.gray400, width: i === 0 ? 80 : void 0, flex: i === 0 ? void 0 : 1, textAlign: i === 0 ? "left" : "center" }, children: h }, h)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { color: c.barTrack, style: { marginBottom: T.spacing.sm } }),
-      rows.map((row, ri) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", alignItems: "center", padding: "8px 0" }, children: row.map((cell, ci) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.darkText, width: ci === 0 ? 80 : void 0, flex: ci === 0 ? void 0 : 1, textAlign: ci === 0 ? "left" : "center" }, children: cell }, ci)) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { color: c.jerseyRed, style: { opacity: 0.15 } })
-      ] }, ri))
-    ] });
-  }
-  function PPlayerStatsPaywall() {
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PPaywallOverlay, { label: "Buy Team Stats", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerStatsTable, {}),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PGameLeaders, {})
-    ] });
-  }
-  function PStatCard({ label, value, labelLines }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, background: c.cardBg, padding: T.spacing.md, borderRadius: T.radii.badge, display: "flex", flexDirection: "column", gap: 2, overflow: "hidden" }, children: [
-      labelLines ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.medium, color: c.gray500, lineHeight: "16px" }, children: labelLines.map((l, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: l }, i)) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.medium, color: c.gray500, lineHeight: "16px" }, children: label }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xxl, fontWeight: T.typography.weights.bold, color: c.darkText, lineHeight: "normal", marginTop: "auto" }, children: value })
-    ] });
-  }
-  function PStatsGrid() {
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: T.spacing.md }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "Minutes Played", labelLines: ["Minutes", "Played"], value: "1245" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "Games Played", labelLines: ["Games", "Played"], value: "64" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "Tournaments Played", labelLines: ["Tournaments", "Played"], value: "18" })
-    ] });
-  }
-  function PSeasonStatsRow() {
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "MPG", value: "23.4" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "PPG", value: "18.6" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "APG", value: "4.5" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "RPG", value: "3.2" })
-    ] });
-  }
-  function PInfoAlert({ title, description }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.infoBgPurple, borderRadius: T.radii.badge, padding: T.spacing.lg, border: "1px solid rgba(139,92,246,0.15)" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.bold, color: c.claimedPurple, marginBottom: T.spacing.xs2 }, children: title }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.caption, color: c.gray500 }, children: description })
-    ] });
-  }
-  function PPaymentModal() {
-    const c = useColors();
-    const cardBg = c.gray50;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 430, display: "flex", flexDirection: "column", gap: T.spacing.md2, fontFamily: F }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: cardBg, borderRadius: T.radii.card, padding: "20px 24px" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.medium, color: c.darkText, margin: "0 0 12px" }, children: "Redeem your Access Code here:" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "relative" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "text", style: { width: "100%", height: 50, background: c.white, border: `1px solid ${c.gray300}`, borderRadius: T.radii.badge, padding: "0 120px 0 16px", fontSize: T.typography.sizes.xs, fontFamily: F, outline: "none", boxSizing: "border-box" } }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "primary", size: "sm", fullWidth: false, style: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", padding: "8px 24px" }, children: "Submit" })
-        ] })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.gray500, margin: 0 }, children: "or select your plan" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: cardBg, borderRadius: T.radii.card, padding: "24px" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.h3, fontWeight: T.typography.weights.bold, color: c.darkText, margin: "0 0 6px" }, children: "Basic Package" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.regular, color: c.gray500, margin: "0 0 16px", lineHeight: 1.5 }, children: "Download a single highlight of your favourite moment from the season!" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.display, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "$5.00" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "primary", size: "lg", fullWidth: false, children: "Buy Now" })
-        ] })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: cardBg, borderRadius: T.radii.card, padding: "24px", border: `2px solid ${c.premiumYellow}` }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.xs, background: c.grayOverlay, borderRadius: T.radii.lg, padding: "6px 14px", marginBottom: T.spacing.sm2 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "\u{1F525} Most Popular" }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.h3, fontWeight: T.typography.weights.bold, color: c.darkText, margin: "0 0 6px" }, children: "Premium Package" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.regular, color: c.gray500, margin: "0 0 14px", lineHeight: 1.5 }, children: "Allows access to all Camera's. You can switch cameras to watch any platform" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.gray100, borderRadius: T.radii.badge, padding: `${T.spacing.md2}px ${T.spacing.lg}px`, marginBottom: T.spacing.md2 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, color: c.gray400, margin: "0 0 8px" }, children: "You will get access to:" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.xs2 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.sm }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 16, color: c.successGreen }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.darkText }, children: "Afrikaanse Ho\xEBr Seunskool U14" })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.sm }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 16, color: c.successGreen }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.darkText }, children: "Bosh PUP U14" })
-            ] })
-          ] })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.display, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "$35.00" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "premium", size: "lg", fullWidth: false, children: "Buy Now" })
-        ] })
-      ] })
-    ] });
-  }
-  function PUpgradeBanner() {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.infoBgPurple, borderRadius: T.radii.badge, padding: T.spacing.md, display: "flex", alignItems: "center", gap: T.spacing.md, border: `${T.strokes.thin}px solid ${c.premiumAmber}` }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 32, height: 32, borderRadius: "50%", background: c.premiumDark, border: `${T.strokes.thin}px solid ${c.premiumYellow}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockSvg, { size: 12, fill: c.premiumYellow }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.regular, color: c.black, margin: 0, flex: 1, lineHeight: 1.5, fontFamily: F }, children: "Upgrade to access personal highlights for all players in this game" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "premium", size: "sm", fullWidth: false, style: { padding: "4px 12px", fontSize: T.typography.sizes.base, borderRadius: T.radii.pill, flexShrink: 0 }, children: "Upgrade" })
-    ] });
-  }
-  function ChipLockSvg() {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 20, height: 20, borderRadius: "50%", background: c.premiumDark, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "none" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockSvg, { size: 8, fill: c.premiumYellow }) });
-  }
-  function PVideoTypeChips() {
-    const c = useColors();
-    const [active, setActive] = (0, import_react3.useState)("full");
-    const chipBase = { border: "none", borderRadius: T.radii.chip, padding: `${T.spacing.sm}px ${T.spacing.md}px`, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.regular, cursor: "pointer", height: T.sizes.chipHeight, display: "flex", alignItems: "center", gap: T.spacing.sm, flexShrink: 0, whiteSpace: "nowrap", boxSizing: "border-box", fontFamily: F };
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("style", { children: `.chipScrollHide::-webkit-scrollbar{display:none}` }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "chipScrollHide", style: { display: "flex", gap: T.spacing.md, marginBottom: T.spacing.lg, overflowX: "auto", paddingRight: T.spacing.lg, WebkitOverflowScrolling: "touch", scrollbarWidth: "none", flexWrap: "nowrap" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: () => setActive("full"), "aria-label": "Full Game", "aria-pressed": active === "full", style: { ...chipBase, background: active === "full" ? c.jerseyRed : c.gray100, color: active === "full" ? c.white : c.black, fontWeight: active === "full" ? 600 : 400 }, children: "Full Game" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { onClick: () => setActive("condensed"), "aria-label": "Condensed Game", "aria-pressed": active === "condensed", style: { ...chipBase, background: active === "condensed" ? c.jerseyRed : c.gray100, color: active === "condensed" ? c.white : c.black, fontWeight: active === "condensed" ? 600 : 400 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChipLockSvg, {}),
-          " Condensed Game"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { onClick: () => setActive("highlights"), "aria-label": "Game Highlights", "aria-pressed": active === "highlights", style: { ...chipBase, background: active === "highlights" ? c.jerseyRed : c.gray100, color: active === "highlights" ? c.white : c.black, fontWeight: active === "highlights" ? 600 : 400 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChipLockSvg, {}),
-          " Game Highlights"
-        ] })
-      ] })
-    ] });
-  }
-  function PVideoActionIconBtn({ icon, active = false, disabled = false, _forceState, onClick, isBookmark = false, ariaLabel }) {
-    const c = useColors();
+  function PVideoActionIconBtn2({ icon, active = false, disabled = false, _forceState, onClick, isBookmark = false, ariaLabel }) {
+    const c = useColors2();
     const Icon2 = icon;
-    const [hovered, setHovered] = (0, import_react3.useState)(false);
-    const [pressed, setPressed] = (0, import_react3.useState)(false);
-    const [animating, setAnimating] = (0, import_react3.useState)(false);
-    const [fo, setFo] = (0, import_react3.useState)(false);
+    const [hovered, setHovered] = (0, import_react6.useState)(false);
+    const [pressed, setPressed] = (0, import_react6.useState)(false);
+    const [animating, setAnimating] = (0, import_react6.useState)(false);
+    const [fo, setFo] = (0, import_react6.useState)(false);
     const stateMap = {
       default: {
         default: { background: c.gray100, color: c.gray500 },
@@ -13882,7 +13629,7 @@
     };
     const iconScale = animating ? "scale(1.3)" : "scale(1)";
     const fillColor = isBookmark && active ? v.color : "none";
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       "button",
       {
         disabled,
@@ -13898,76 +13645,54 @@
         onBlur: () => setFo(false),
         "aria-label": ariaLabel,
         "aria-pressed": isBookmark ? active : void 0,
-        style: { width: T.sizes.buttonMd, height: T.sizes.buttonMd, borderRadius: "50%", background: v.background, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: disabled ? "not-allowed" : "pointer", flexShrink: 0, transition: "background 0.15s, color 0.15s", ...fo ? focusRing(c) : {} },
-        children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { display: "flex", alignItems: "center", justifyContent: "center", transition: "transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)", transform: isBookmark ? iconScale : "scale(1)" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon2, { size: T.typography.sizes.lg, color: v.color, fill: fillColor, style: { transition: "fill 0.3s ease, color 0.3s ease" } }) })
+        style: { width: T3.sizes.buttonMd, height: T3.sizes.buttonMd, borderRadius: "50%", background: v.background, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: disabled ? "not-allowed" : "pointer", flexShrink: 0, transition: "background 0.15s, color 0.15s", ...fo ? focusRing(c) : {} },
+        children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { style: { display: "flex", alignItems: "center", justifyContent: "center", transition: "transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)", transform: isBookmark ? iconScale : "scale(1)" }, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Icon2, { size: T3.typography.sizes.lg, color: v.color, fill: fillColor, style: { transition: "fill 0.3s ease, color 0.3s ease" } }) })
       }
     );
   }
   function PVideoActionBar({ views = "1 view", bookmarked = false, disabled = false, _forceState, onDownload, onShare, onBookmark }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: `${T.spacing.md}px 0`, width: "100%", opacity: disabled && !_forceState ? 0.5 : 1 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.gray500 }, children: views }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoActionIconBtn, { icon: Download, disabled, _forceState, onClick: onDownload, ariaLabel: "Download" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoActionIconBtn, { icon: Upload, disabled, _forceState, onClick: onShare, ariaLabel: "Share" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoActionIconBtn, { icon: Bookmark, active: bookmarked, disabled, _forceState, onClick: onBookmark, isBookmark: true, ariaLabel: bookmarked ? "Remove bookmark" : "Add bookmark" })
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: `${T3.spacing.md}px 0`, width: "100%", opacity: disabled && !_forceState ? 0.5 : 1 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { style: { fontFamily: F3, fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.medium, color: c.gray500 }, children: views }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { style: { display: "flex", gap: T3.spacing.md }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PVideoActionIconBtn2, { icon: Download, disabled, _forceState, onClick: onDownload, ariaLabel: "Download" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PVideoActionIconBtn2, { icon: Upload, disabled, _forceState, onClick: onShare, ariaLabel: "Share" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PVideoActionIconBtn2, { icon: Bookmark, active: bookmarked, disabled, _forceState, onClick: onBookmark, isBookmark: true, ariaLabel: bookmarked ? "Remove bookmark" : "Add bookmark" })
       ] })
     ] });
   }
-  function PShareCurtainStatic() {
-    const c = useColors();
-    const mode = useThemeMode();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 430, margin: "0 auto", background: c.gray50, borderRadius: T.radii.lg, padding: "24px 28px 32px", boxShadow: "0 -4px 24px rgba(0,0,0,0.12)", boxSizing: "border-box" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { style: { fontFamily: F, fontSize: T.typography.sizes.h3, fontWeight: T.typography.weights.bold, textAlign: "center", margin: "0 0 24px", color: c.darkText }, children: "Share" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "24px 0" }, children: SHARE_CHANNELS.map((ch) => {
-        return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-            "button",
-            {
-              "aria-label": "Share via " + ch.label,
-              onFocus: (e) => Object.assign(e.currentTarget.style, focusRing(c)),
-              onBlur: (e) => {
-                e.currentTarget.style.outline = "none";
-                e.currentTarget.style.outlineOffset = "";
-              },
-              style: { width: 64, height: 64, borderRadius: "50%", background: ch.gradient || (mode === "dark" && ch.darkColor ? ch.darkColor : ch.color), display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "none", padding: 0 },
-              children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ch.icon, { size: 28 })
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, color: c.darkText, textAlign: "center" }, children: ch.label })
-        ] }, ch.label);
-      }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { marginTop: T.spacing.xl }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "muted", size: "lg", children: "Cancel" }) })
+
+  // src/primitives/media.tsx
+  var import_react7 = __toESM(require_react());
+  var import_jsx_runtime4 = __toESM(require_jsx_runtime());
+  function PVideoThumbnail2({ orientation = "landscape", locked = false, duration = "1:42:15", title = "Full Game", subtitle = "Free", showJerseyBadge = false, jerseyNumber = 1, jerseyLabel = "Player Highlights", jerseyColor = DEFAULTS.jerseyRed, thumbnailUrl }) {
+    const c = useColors2();
+    const isVert = orientation === "vertical";
+    const container = isVert ? { borderRadius: T3.radii.badge, width: 108, height: 192 } : { borderRadius: T3.radii.card, width: "100%", maxWidth: 398, aspectRatio: "16/9", marginBottom: T3.spacing.md };
+    const badge = isVert ? { top: 7, left: 6, padding: "2px 4px" } : { top: 8, left: 8, padding: "2px 8px" };
+    const icon = isVert ? { top: 6, right: 6 } : { top: 8, right: 8 };
+    const grad = isVert ? { background: "linear-gradient(to top, rgba(0,0,0,0.5) 49%, rgba(114,123,132,0) 100%)", padding: T3.spacing.sm } : { background: "linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0) 100%)", padding: T3.spacing.md };
+    const titleStyle = isVert ? { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.bold, color: c.white, lineHeight: "16px" } : { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.bold, color: c.white, lineHeight: "18px" };
+    const subStyle = isVert ? { fontSize: T3.typography.sizes.mini, fontWeight: T3.typography.weights.bold, color: c.gray300, lineHeight: "15px", marginTop: T3.spacing.xxs } : { fontSize: T3.typography.sizes.xxs, fontWeight: T3.typography.weights.regular, color: c.gray300, lineHeight: "16.5px", marginTop: T3.spacing.xxs };
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { style: { position: "relative", overflow: "hidden", background: c.heroBg, ...container }, children: [
+      thumbnailUrl && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("img", { src: thumbnailUrl, alt: "", style: { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", zIndex: 0 } }),
+      locked && !thumbnailUrl && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { position: "absolute", inset: 0, background: "linear-gradient(135deg, #2a4a7f 0%, #1a3a5c 40%, #3a6a9f 70%, #1a2a4a 100%)", filter: "blur(8px)", transform: "scale(1.1)", zIndex: 0 } }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { position: "absolute", ...badge, background: "rgba(0,0,0,0.55)", borderRadius: T3.radii.pill, zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { style: { fontFamily: F3, fontWeight: T3.typography.weights.medium, fontSize: T3.typography.sizes.xxs, color: "#FFFFFF", lineHeight: 1 }, children: duration }) }),
+      !showJerseyBadge && (locked ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { position: "absolute", ...icon, width: 28, height: 28, background: c.premiumDark, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2, border: `${T3.strokes.medium}px solid ${c.premiumYellow}`, boxSizing: "border-box" }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(LockSvg, { size: 11, fill: c.premiumYellow }) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { position: "absolute", ...icon, width: 28, height: 28, borderRadius: "50%", background: c.gray500, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Play, { size: 12, color: c.jerseyStroke, fill: c.jerseyStroke }) })),
+      showJerseyBadge && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Play, { size: 16, color: "#FFFFFF", fill: "#FFFFFF" }) }),
+      showJerseyBadge ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { position: "absolute", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, rgba(0,0,0,0.5) 49%, rgba(114,123,132,0) 100%)", padding: "12px 8px", zIndex: 1, display: "flex", alignItems: "flex-end" }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { style: { display: "flex", gap: T3.spacing.xs2, alignItems: "center" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { style: { width: 19.25, height: 28, position: "relative", flexShrink: 0 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("svg", { viewBox: "12 4 50 66", fill: "none", preserveAspectRatio: "xMidYMid meet", style: { position: "absolute", inset: 0, width: "100%", height: "100%", filter: "drop-shadow(0px 0.7px 3.5px rgba(5,27,68,0.2))" }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: JERSEY_PATH_73, fill: jerseyColor, stroke: "white", strokeWidth: "2" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { style: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-46%)", fontFamily: F3, fontWeight: T3.typography.weights.bold, fontSize: T3.typography.sizes.mini, color: _isLightColor(jerseyColor) ? c.darkText : "#fff", lineHeight: 1 }, children: jerseyNumber })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { fontFamily: F3, fontWeight: T3.typography.weights.bold, fontSize: T3.typography.sizes.caption, color: c.gray200, lineHeight: "14px" }, children: jerseyLabel })
+      ] }) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { style: { position: "absolute", bottom: 0, left: 0, right: 0, ...grad, zIndex: 1 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: titleStyle, children: title }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: subStyle, children: subtitle })
+      ] })
     ] });
   }
-  var GoogleIcon = () => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { "aria-hidden": "true", width: "18", height: "18", viewBox: "0 0 18 18", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z", fill: "#4285F4" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z", fill: "#34A853" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.997 8.997 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332Z", fill: "#FBBC05" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.167 6.656 3.58 9 3.58Z", fill: "#EA4335" })
-  ] });
-  var AppleIcon = () => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { "aria-hidden": "true", width: "18", height: "20", viewBox: "0 0 18 22", fill: "currentColor", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M17.05 15.23c-.4.92-.59 1.33-1.1 2.15-.72 1.14-1.73 2.56-2.98 2.57-1.12.01-1.4-.73-2.92-.72-1.52.01-1.83.74-2.95.73-1.26-.01-2.22-1.29-2.94-2.43C2.1 14.36 1.93 10.87 3.34 9.04c1-1.3 2.58-2.06 4.01-2.06 1.49 0 2.43.74 3.66.74 1.2 0 1.93-.74 3.66-.74 1.27 0 2.68.69 3.68 1.88-3.23 1.77-2.7 6.38.7 7.37ZM12.14 4.9c.56-.72.99-1.74.83-2.78-.92.06-2 .65-2.63 1.41-.57.69-1.04 1.72-.86 2.72 1 .03 2.04-.57 2.66-1.35Z" }) });
-  var CopyLinkIcon = ({ size = 24 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "#fff", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" })
-  ] });
-  var FacebookIcon = ({ size = 24 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "#fff", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M24 12c0-6.627-5.373-12-12-12S0 5.373 0 12c0 5.99 4.388 10.954 10.125 11.854V15.47H7.078V12h3.047V9.356c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.875V12h3.328l-.532 3.47h-2.796v8.384C19.612 22.954 24 17.99 24 12Z" }) });
-  var XLogoIcon = ({ size = 20 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "#fff", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" }) });
-  var WhatsAppIcon = ({ size = 24 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "#fff", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347ZM12.05 21.785h-.018a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.981.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884ZM20.52 3.449C18.24 1.226 15.24 0 12.045 0 5.463 0 .104 5.334.101 11.893c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.585 0 11.946-5.336 11.949-11.896 0-3.176-1.24-6.165-3.495-8.411Z" }) });
-  var TikTokIcon = ({ size = 20 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "#fff", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1v-3.52a6.37 6.37 0 0 0-.79-.05A6.34 6.34 0 0 0 3.15 15.2a6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.34-6.34V9.17a8.16 8.16 0 0 0 4.76 1.53v-3.5a4.82 4.82 0 0 1-1-.51Z" }) });
-  var InstagramIcon = ({ size = 22 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "#fff", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069ZM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0Zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324ZM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881Z" }) });
-  var SHARE_CHANNELS = [
-    { label: "Copy Link", color: "#BDBDBD", icon: CopyLinkIcon },
-    { label: "Facebook", color: "#1877F2", icon: FacebookIcon },
-    { label: "X", color: "#000000", darkColor: "#333333", icon: XLogoIcon },
-    { label: "WhatsApp", color: "#25D366", icon: WhatsAppIcon },
-    { label: "TikTok", color: "#000000", darkColor: "#333333", icon: TikTokIcon },
-    { label: "Instagram", gradient: "linear-gradient(135deg, #F58529 0%, #DD2A7B 50%, #8134AF 100%)", icon: InstagramIcon }
-  ];
-  function PixellotLogo({ size = 30 }) {
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 235 163", fill: "none", style: { flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { fillRule: "evenodd", clipRule: "evenodd", d: "M172.002 54.528L161.909 108.355C160.962 113.497 157.913 116.015 152.867 116.015H69.176C64.13 116.015 62.027 113.497 63.078 108.355L73.172 54.528C74.118 49.386 77.167 46.868 82.214 46.868H165.904C170.951 46.868 173.053 49.386 172.002 54.528ZM182.095 0.7H83.265C42.6813 0.7 19.5508 16.1242 13.7682 46.868L0.731 116.12C-5.0516 146.863 12.2963 162.288 52.8798 162.288H151.71C192.294 162.288 215.424 146.863 221.207 116.12L234.244 46.868C240.027 16.1242 222.679 0.7 182.095 0.7Z", fill: "#00D6FE" }) });
-  }
-  function PBrandHero({ primaryColor = DEFAULTS.heroBg, logo, logoSize = 80, height = T.sizes.heroHeight }) {
+  function PBrandHero({ primaryColor = DEFAULTS.heroBg, logo, logoSize = 80, height = T3.sizes.heroHeight }) {
     const darkerColor = (() => {
       const hex = primaryColor.replace("#", "");
       const r = Math.max(0, Math.round(parseInt(hex.substring(0, 2), 16) * 0.7));
@@ -13975,188 +13700,18 @@
       const b = Math.max(0, Math.round(parseInt(hex.substring(4, 6), 16) * 0.7));
       return `rgb(${r},${g},${b})`;
     })();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: "100%", height, background: `linear-gradient(180deg, ${primaryColor} 0%, ${darkerColor} 100%)`, borderRadius: `0 0 ${T.radii.xl}px ${T.radii.xl}px`, display: "flex", alignItems: "center", justifyContent: "center" }, children: logo || /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: logoSize * 2.2, height: logoSize * 2.2, borderRadius: T.radii.md, background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", border: "2px dashed rgba(255,255,255,0.3)" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { width: logoSize * 1.1, height: logoSize * 1.1, viewBox: "0 0 80 80", fill: "none", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "4", y: "4", width: "72", height: "72", rx: "14", fill: "rgba(255,255,255,0.2)" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M28 52 L40 28 L52 52 Z", fill: "rgba(255,255,255,0.5)" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "33", cy: "35", r: "5", fill: "rgba(255,255,255,0.5)" })
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { width: "100%", height, background: `linear-gradient(180deg, ${primaryColor} 0%, ${darkerColor} 100%)`, borderRadius: `0 0 ${T3.radii.xl}px ${T3.radii.xl}px`, display: "flex", alignItems: "center", justifyContent: "center" }, children: logo || /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { width: logoSize * 2.2, height: logoSize * 2.2, borderRadius: T3.radii.md, background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", border: "2px dashed rgba(255,255,255,0.3)" }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("svg", { width: logoSize * 1.1, height: logoSize * 1.1, viewBox: "0 0 80 80", fill: "none", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("rect", { x: "4", y: "4", width: "72", height: "72", rx: "14", fill: "rgba(255,255,255,0.2)" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("path", { d: "M28 52 L40 28 L52 52 Z", fill: "rgba(255,255,255,0.5)" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("circle", { cx: "33", cy: "35", r: "5", fill: "rgba(255,255,255,0.5)" })
     ] }) }) });
   }
-  var CodeBlock = ({ code, title }) => {
-    const c = useColors();
-    const isLight = useThemeMode() === "light";
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: isLight ? "#1e293b" : "#0D1117", borderRadius: T.radii.badge, overflow: "hidden", marginTop: T.spacing.md }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: `${T.spacing.sm}px ${T.spacing.md}px`, background: isLight ? "#0f172a" : "#161b22", borderBottom: `1px solid ${isLight ? "#334155" : "#30363d"}` }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: isLight ? "#94a3b8" : "#8b949e", fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.semibold }, children: title }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CopyBtn, { text: code })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { style: { padding: T.spacing.lg, margin: 0, color: isLight ? "#e2e8f0" : "#c9d1d9", fontSize: T.typography.sizes.caption, lineHeight: 1.6, overflow: "auto", maxHeight: 400, fontFamily: '"Fira Code","SF Mono",monospace', whiteSpace: "pre-wrap", wordBreak: "break-word" }, children: code })
-    ] });
-  };
-  var Card = ({ title, desc, children, code, codeTitle }) => {
-    const c = useColors();
-    const isLight = useThemeMode() === "light";
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.white, border: `1px solid ${isLight ? c.gray200 : c.gray200}`, borderRadius: T.radii.md, overflow: "hidden", marginBottom: T.spacing.lg2 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "14px 20px", borderBottom: `1px solid ${isLight ? c.gray50 : c.gray100}` }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { style: { margin: 0, fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.bold, color: c.darkText }, children: title }),
-        desc && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { margin: "4px 0 0", fontSize: T.typography.sizes.caption, color: c.gray500 }, children: desc })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { padding: 20 }, children }),
-      code && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CodeBlock, { code, title: codeTitle || "SFC" })
-    ] });
-  };
-  var Swatch = ({ name, hex }) => {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.sm2, padding: "5px 0" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 36, height: 36, borderRadius: T.radii.thumb, background: hex, border: `1px solid ${c.gray200}`, flexShrink: 0 } }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.semibold, color: c.darkText }, children: name }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray500, fontFamily: "monospace" }, children: hex })
-      ] })
-    ] });
-  };
-  function PAvatar({ initials = "BR", size = 40 }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", background: c.gray500, display: "flex", alignItems: "center", justifyContent: "center", color: c.white, fontFamily: F, fontSize: size * 0.38, fontWeight: T.typography.weights.bold, flexShrink: 0 }, children: initials });
-  }
-  function PBellIcon({ count = 0 }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "relative", display: "inline-flex" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bell, { size: 24, color: c.gray500 }),
-      count > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", top: -4, right: -6, minWidth: 16, height: 16, borderRadius: T.radii.thumb, background: c.notifBadgeRed, display: "flex", alignItems: "center", justifyContent: "center", padding: `0 ${T.spacing.xs}px`, boxSizing: "border-box" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.micro, fontWeight: T.typography.weights.bold, color: c.white }, children: count }) })
-    ] });
-  }
-  function PTeamLogo({ size = 28, name = "", logoUrl }) {
-    const c = useColors();
-    if (logoUrl) {
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", background: c.white, border: `${T.strokes.thin}px solid ${c.barTrack}`, flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: logoUrl, alt: name, style: { width: size, height: size, objectFit: "cover", borderRadius: "50%" } }) });
-    }
-    const colors = ["#D0142C", "#116DFF", "#22C55E", "#E7A610", "#8B5CF6", "#0d9488", "#E8332B", "#1877F2", "#DD2A7B", "#0EA5E9", "#F97316", "#6366F1"];
-    const hash = name ? [...name].reduce((h, ch) => (h << 5) - h + ch.charCodeAt(0) | 0, 0) : 0;
-    const idx = Math.abs(hash) % colors.length;
-    const initial = name ? name.charAt(0).toUpperCase() : "T";
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", background: c.white, border: `${T.strokes.thin}px solid ${c.barTrack}`, flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { viewBox: "0 0 28 28", width: size, height: size, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "14", cy: "14", r: "13", fill: colors[idx], opacity: "0.15" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "14", cy: "14", r: "13", stroke: colors[idx], strokeWidth: "0.5", fill: "none", opacity: "0.4" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("text", { x: "14", y: "18.5", textAnchor: "middle", fontFamily: F, fontSize: "14", fontWeight: "700", fill: colors[idx], children: initial })
-    ] }) });
-  }
-  function PPlayerPhoto({ size = 48, name = "", photoUrl }) {
-    const c = useColors();
-    const [imgError, setImgError] = (0, import_react3.useState)(false);
-    if (photoUrl && !imgError) {
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", flexShrink: 0, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: photoUrl, alt: name, onError: () => setImgError(true), style: { width: size, height: size, objectFit: "cover", borderRadius: "50%" } }) });
-    }
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", background: c.gray200, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(User, { size: size * 0.55, color: c.gray400 }) });
-  }
-  function PPlayerNumberBadge({ number, size = 40, teamColor, photoUrl }) {
-    const c = useColors();
-    const bg = teamColor || c.primary;
-    const [imgError, setImgError] = (0, import_react3.useState)(false);
-    if (photoUrl && !imgError) {
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", flexShrink: 0, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: photoUrl, alt: `#${number}`, onError: () => setImgError(true), style: { width: size, height: size, objectFit: "cover", borderRadius: "50%" } }) });
-    }
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", background: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: size * 0.4, fontWeight: T.typography.weights.bold, color: _isLightColor(bg) ? c.darkText : c.white }, children: number }) });
-  }
-  function PFollowingRow({ avatar, title, subtitle, action, borderBottom = true }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.md, padding: `${T.spacing.md}px 0`, borderBottom: borderBottom ? `1px solid ${c.gray100}` : "none" }, children: [
-      avatar,
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.semibold, color: c.darkText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: title }),
-        subtitle && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, color: c.gray400, marginTop: T.spacing.xxs }, children: subtitle })
-      ] }),
-      action
-    ] });
-  }
-  function PDivider({ color, thickness = 1, spacing = 0, vertical = false, style = {} }) {
-    const c = useColors();
-    const bg = color || c.gray200;
-    if (vertical) {
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: thickness, alignSelf: "stretch", background: bg, marginLeft: spacing, marginRight: spacing, flexShrink: 0, ...style } });
-    }
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { height: thickness, width: "100%", background: bg, marginTop: spacing, marginBottom: spacing, flexShrink: 0, ...style } });
-  }
-  function PSearchBar({ placeholder = "Search...", value, onChange, onClear, readOnly = false, disabled = false, onClick, iconSize = 18, autoFocus = false }) {
-    const c = useColors();
-    const [focused, setFocused] = (0, import_react3.useState)(false);
-    const hasValue = value !== void 0 && value !== "";
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "relative" }, onClick: readOnly && !disabled ? onClick : void 0, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, { size: iconSize, color: disabled ? c.gray200 : c.gray400, style: { position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" } }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "input",
-        {
-          placeholder,
-          value,
-          onChange: onChange ? (e) => onChange(e.target.value) : void 0,
-          readOnly,
-          disabled,
-          autoFocus,
-          onFocus: () => setFocused(true),
-          onBlur: () => setFocused(false),
-          style: {
-            width: "100%",
-            padding: hasValue && onClear ? "12px 40px 12px 42px" : "12px 12px 12px 42px",
-            borderRadius: T.radii.pill,
-            border: focused ? `2px solid ${c.primary}` : "2px solid transparent",
-            background: disabled ? c.gray100 : c.gray50,
-            fontFamily: F,
-            fontSize: T.typography.sizes.xs,
-            color: disabled ? c.gray300 : readOnly ? c.gray400 : c.darkText,
-            outline: "none",
-            boxSizing: "border-box",
-            cursor: disabled ? "not-allowed" : readOnly ? "pointer" : void 0,
-            opacity: disabled ? 0.6 : 1
-          }
-        }
-      ),
-      hasValue && onClear && !disabled && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: (e) => {
-        e.stopPropagation();
-        onClear();
-      }, "aria-label": "Clear search", style: { position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 16, color: c.gray400 }) })
-    ] });
-  }
-  function PBackBar({ label = "Back", showShare = false, onBack, onShare, padding = "12px 16px" }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { onClick: onBack, "aria-label": "Go back", style: { display: "flex", alignItems: "center", gap: T.spacing.xs2, background: "none", border: "none", cursor: "pointer", padding: 0 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { size: 16, color: c.gray500 }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.medium, color: c.gray500 }, children: label })
-      ] }),
-      showShare && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: onShare, "aria-label": "Share", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Share2, { size: 20, color: c.darkText }) })
-    ] });
-  }
-  function SearchBarShowcase() {
-    const c = useColors();
-    const [filledVal, setFilledVal] = (0, import_react3.useState)("Premier League");
-    const [typingVal, setTypingVal] = (0, import_react3.useState)("");
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "SearchBar" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Reusable pill-shaped search input. Used anywhere a search pattern is needed. Supports empty, focused, filled, clearable, read-only, and disabled states." }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Empty (default)", desc: "Placeholder visible, no value", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSearchBar, { placeholder: "Search any team or competition..." }) }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Focused", desc: "Click to see the focus ring \u2014 2px primary border appears on focus", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSearchBar, { placeholder: "Search any team or competition...", autoFocus: true }) }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Filled", desc: "Controlled value with onChange \u2014 user is typing", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSearchBar, { placeholder: "Search...", value: typingVal, onChange: setTypingVal }) }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Filled + clearable", desc: "onClear shows an \u2715 button when value is not empty", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSearchBar, { placeholder: "Search...", value: filledVal, onChange: setFilledVal, onClear: () => setFilledVal("") }) }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Read-only", desc: "readOnly \u2014 acts as a tappable trigger, grayed text, pointer cursor", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSearchBar, { placeholder: "Search any team or competition...", readOnly: true }) }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Disabled", desc: "disabled \u2014 dimmed appearance, not interactive", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSearchBar, { placeholder: "Search any team or competition...", disabled: true }) }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'placeholder?: string \u2014 placeholder text (default "Search...")' }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "value?: string \u2014 controlled input value" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onChange?: (value: string) => void \u2014 called on every keystroke" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onClear?: () => void \u2014 if provided, shows \u2715 clear button when value is not empty" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "readOnly?: boolean \u2014 non-editable, tappable trigger mode (default false)" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "disabled?: boolean \u2014 fully disabled, dimmed (default false)" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onClick?: () => void \u2014 called when tapping a readOnly search bar" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "autoFocus?: boolean \u2014 auto-focus input on mount (default false)" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "iconSize?: number \u2014 search icon size in px (default 18)" })
-      ] }) })
-    ] });
-  }
   function PAdBanner({ active: initialActive = 0 }) {
-    const c = useColors();
-    const [active, setActive] = (0, import_react3.useState)(initialActive);
-    const [dragX, setDragX] = (0, import_react3.useState)(0);
-    const startX = (0, import_react3.useRef)(0);
-    const dragging = (0, import_react3.useRef)(false);
+    const c = useColors2();
+    const [active, setActive] = (0, import_react7.useState)(initialActive);
+    const [dragX, setDragX] = (0, import_react7.useState)(0);
+    const startX = (0, import_react7.useRef)(0);
+    const dragging = (0, import_react7.useRef)(false);
     var slides = [
       { bg: "linear-gradient(135deg, #1a1a1a 0%, #333 100%)", label: "Ad Slot 1" },
       { bg: "linear-gradient(135deg, #0d9488 0%, #2dd4bf 100%)", label: "Ad Slot 2" }
@@ -14177,7 +13732,7 @@
       else if (dragX > 40 && active > 0) setActive(active - 1);
       setDragX(0);
     };
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
       "div",
       {
         style: { position: "relative", width: "100%", borderRadius: 0, overflow: "hidden", touchAction: "pan-y", cursor: "grab" },
@@ -14186,496 +13741,437 @@
         onPointerUp: handlePointerUp,
         onPointerCancel: handlePointerUp,
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", transition: dragging.current ? "none" : "transform 0.3s", transform: `translateX(calc(-${active * 100}% + ${dragX}px))` }, children: slides.map(function(s, i) {
-            return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { minWidth: "100%", height: 180, background: s.bg, display: "flex", alignItems: "center", justifyContent: "center", userSelect: "none" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: c.white, fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.semibold, opacity: 0.7 }, children: s.label }) }, i);
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { display: "flex", transition: dragging.current ? "none" : "transform 0.3s", transform: `translateX(calc(-${active * 100}% + ${dragX}px))` }, children: slides.map(function(s, i) {
+            return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { minWidth: "100%", height: 180, background: s.bg, display: "flex", alignItems: "center", justifyContent: "center", userSelect: "none" }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { style: { color: c.white, fontFamily: F3, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.semibold, opacity: 0.7 }, children: s.label }) }, i);
           }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", bottom: 10, left: "50%", transform: "translateX(-50%)", display: "flex", gap: T.spacing.sm }, children: slides.map(function(_, i) {
-            return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 8, height: 8, borderRadius: "50%", background: i === active ? c.white : "rgba(255,255,255,0.5)", transition: "background 0.2s" } }, i);
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { position: "absolute", bottom: 10, left: "50%", transform: "translateX(-50%)", display: "flex", gap: T3.spacing.sm }, children: slides.map(function(_, i) {
+            return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { width: 8, height: 8, borderRadius: "50%", background: i === active ? c.white : "rgba(255,255,255,0.5)", transition: "background 0.2s" } }, i);
           }) })
         ]
       }
     );
   }
-  function PNotificationItem({ jerseyNumber = 4, text = '"Player #4 Highlight" from the game "S.D Spartans vs. Logan Thunder (121-89, Nov 13, 2025)" is now ready!' }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, padding: `${T.spacing.md2}px 0`, borderBottom: `1px solid ${c.gray100}`, alignItems: "flex-start" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "relative", flexShrink: 0 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { width: 50, height: 50 * (67 / 73), viewBox: "0 0 73 73", fill: "none", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: JERSEY_PATH_73, fill: c.jerseyRed, stroke: c.white, strokeWidth: T.strokes.thick }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -38%)", fontFamily: F, fontSize: T.typography.sizes.h3, fontWeight: T.typography.weights.extraBold, color: c.white }, children: jerseyNumber })
+
+  // src/primitives/badges.tsx
+  var import_react8 = __toESM(require_react());
+  var import_jsx_runtime5 = __toESM(require_jsx_runtime());
+  function PBadge({ variant = "live" }) {
+    const c = useColors2();
+    const variants = {
+      live: { background: c.liveRed, fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.semibold, textTransform: "uppercase", label: "LIVE", dot: true },
+      premium: { background: c.premiumAmber, fontSize: T3.typography.sizes.xxs, fontWeight: T3.typography.weights.bold, textTransform: "uppercase", label: "Premium", dot: false },
+      free: { background: c.freeBadgeGreen, fontSize: T3.typography.sizes.xxs, fontWeight: T3.typography.weights.bold, textTransform: "uppercase", label: "Free", dot: false },
+      claimed: { background: c.claimedPurple, fontSize: T3.typography.sizes.xxs, fontWeight: T3.typography.weights.bold, textTransform: "uppercase", label: "Claimed", dot: false },
+      highlights: { background: c.highlightsBadgeBg, fontSize: T3.typography.sizes.xxs, fontWeight: T3.typography.weights.bold, textTransform: "uppercase", label: "HIGHLIGHTS", dot: false, icon: true }
+    };
+    const v = variants[variant] || variants.live;
+    var badgeColor = variant === "highlights" ? c.highlightsBadgeText : c.white;
+    var badgeBorder = variant === "highlights" ? `${T3.strokes.thin}px solid ${c.highlightsBadgeText}` : "none";
+    return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { style: { display: "inline-flex", alignItems: "center", gap: T3.spacing.xs, background: v.background, color: badgeColor, padding: `${T3.spacing.xs}px ${T3.spacing.md}px`, borderRadius: T3.radii.badge, fontSize: v.fontSize, fontWeight: v.fontWeight, textTransform: v.textTransform, border: badgeBorder }, children: [
+      v.dot && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("style", { children: `@keyframes liveDotFlicker { 0%,100%{opacity:1} 50%{opacity:0.2} }` }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { width: 6, height: 6, borderRadius: "50%", background: c.white, animation: "liveDotFlicker 1.2s ease-in-out infinite" } })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.regular, color: c.black, lineHeight: 1.5, flex: 1 }, children: text })
+      v.icon && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Play, { size: 10, fill: c.premiumYellow, color: c.premiumYellow }),
+      v.label
+    ] });
+  }
+  function PBellIcon2({ count = 0 }) {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { style: { position: "relative", display: "inline-flex" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Bell, { size: 24, color: c.gray500 }),
+      count > 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { position: "absolute", top: -4, right: -6, minWidth: 16, height: 16, borderRadius: T3.radii.thumb, background: c.notifBadgeRed, display: "flex", alignItems: "center", justifyContent: "center", padding: `0 ${T3.spacing.xs}px`, boxSizing: "border-box" }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { style: { fontFamily: F3, fontSize: T3.typography.sizes.micro, fontWeight: T3.typography.weights.bold, color: c.white }, children: count }) })
+    ] });
+  }
+  function PTeamLogo2({ size = 28, name = "", logoUrl }) {
+    const c = useColors2();
+    if (logoUrl) {
+      return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", background: c.white, border: `${T3.strokes.thin}px solid ${c.barTrack}`, flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("img", { src: logoUrl, alt: name, style: { width: size, height: size, objectFit: "cover", borderRadius: "50%" } }) });
+    }
+    const colors = ["#D0142C", "#116DFF", "#22C55E", "#E7A610", "#8B5CF6", "#0d9488", "#E8332B", "#1877F2", "#DD2A7B", "#0EA5E9", "#F97316", "#6366F1"];
+    const hash = name ? [...name].reduce((h, ch) => (h << 5) - h + ch.charCodeAt(0) | 0, 0) : 0;
+    const idx = Math.abs(hash) % colors.length;
+    const initial = name ? name.charAt(0).toUpperCase() : "T";
+    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", background: c.white, border: `${T3.strokes.thin}px solid ${c.barTrack}`, flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { viewBox: "0 0 28 28", width: size, height: size, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("circle", { cx: "14", cy: "14", r: "13", fill: colors[idx], opacity: "0.15" }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("circle", { cx: "14", cy: "14", r: "13", stroke: colors[idx], strokeWidth: "0.5", fill: "none", opacity: "0.4" }),
+      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("text", { x: "14", y: "18.5", textAnchor: "middle", fontFamily: F3, fontSize: "14", fontWeight: "700", fill: colors[idx], children: initial })
+    ] }) });
+  }
+  function PAvatar({ initials = "BR", size = 40 }) {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", background: c.gray500, display: "flex", alignItems: "center", justifyContent: "center", color: c.white, fontFamily: F3, fontSize: size * 0.38, fontWeight: T3.typography.weights.bold, flexShrink: 0 }, children: initials });
+  }
+  function PPlayerPhoto2({ size = 48, name = "", photoUrl }) {
+    const c = useColors2();
+    const [imgError, setImgError] = (0, import_react8.useState)(false);
+    if (photoUrl && !imgError) {
+      return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", flexShrink: 0, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("img", { src: photoUrl, alt: name, onError: () => setImgError(true), style: { width: size, height: size, objectFit: "cover", borderRadius: "50%" } }) });
+    }
+    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", background: c.gray200, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(User, { size: size * 0.55, color: c.gray400 }) });
+  }
+  function PPlayerNumberBadge({ number, size = 40, teamColor, photoUrl }) {
+    const c = useColors2();
+    const bg = teamColor || c.primary;
+    const [imgError, setImgError] = (0, import_react8.useState)(false);
+    if (photoUrl && !imgError) {
+      return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", flexShrink: 0, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("img", { src: photoUrl, alt: `#${number}`, onError: () => setImgError(true), style: { width: size, height: size, objectFit: "cover", borderRadius: "50%" } }) });
+    }
+    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { width: size, height: size, borderRadius: "50%", background: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { style: { fontFamily: F3, fontSize: size * 0.4, fontWeight: T3.typography.weights.bold, color: _isLightColor(bg) ? c.darkText : c.white }, children: number }) });
+  }
+  function LockSvg2({ size = 11, fill = DEFAULTS.premiumYellow }) {
+    const w = size;
+    const h = size * (10 / 8);
+    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("svg", { width: w, height: h, viewBox: "0 0 8 10", fill: "none", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { clipRule: "evenodd", d: "M7.02621 4.06889H6.73849L6.73733 2.70111C6.73616 1.21111 5.46535 -0.00110943 3.90332 1.67782e-06C2.3413 0.00111279 1.07048 1.21333 1.07164 2.70333L1.07397 4.07111H0.971466C0.434483 4.07222 -0.00115988 4.48778 4.94171e-06 5V9.07222C4.94171e-06 9.58444 0.436813 10 0.973795 10L7.02853 9.99667C7.56552 9.99667 8.00116 9.58111 8 9.06889V4.99556C8 4.48333 7.56319 4.06889 7.02621 4.06889ZM2.11765 4.07111L2.11532 2.70333C2.11532 1.76222 2.91672 0.996668 3.90332 0.995557C4.88992 0.995557 5.69248 1.76111 5.69248 2.70111L5.69481 4.06889L2.11765 4.07111Z", fill, fillRule: "evenodd" }) });
+  }
+  function ChipLockSvg2() {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { width: 20, height: 20, borderRadius: "50%", background: c.premiumDark, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "none" }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(LockSvg2, { size: 8, fill: c.premiumYellow }) });
+  }
+  var GoogleIcon2 = () => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("svg", { "aria-hidden": "true", width: "18", height: "18", viewBox: "0 0 18 18", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z", fill: "#4285F4" }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z", fill: "#34A853" }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.997 8.997 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332Z", fill: "#FBBC05" }),
+    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.167 6.656 3.58 9 3.58Z", fill: "#EA4335" })
+  ] });
+  var AppleIcon2 = () => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("svg", { "aria-hidden": "true", width: "18", height: "20", viewBox: "0 0 18 22", fill: "currentColor", children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { d: "M17.05 15.23c-.4.92-.59 1.33-1.1 2.15-.72 1.14-1.73 2.56-2.98 2.57-1.12.01-1.4-.73-2.92-.72-1.52.01-1.83.74-2.95.73-1.26-.01-2.22-1.29-2.94-2.43C2.1 14.36 1.93 10.87 3.34 9.04c1-1.3 2.58-2.06 4.01-2.06 1.49 0 2.43.74 3.66.74 1.2 0 1.93-.74 3.66-.74 1.27 0 2.68.69 3.68 1.88-3.23 1.77-2.7 6.38.7 7.37ZM12.14 4.9c.56-.72.99-1.74.83-2.78-.92.06-2 .65-2.63 1.41-.57.69-1.04 1.72-.86 2.72 1 .03 2.04-.57 2.66-1.35Z" }) });
+  function PixellotLogo2({ size = 30 }) {
+    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 235 163", fill: "none", style: { flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("path", { fillRule: "evenodd", clipRule: "evenodd", d: "M172.002 54.528L161.909 108.355C160.962 113.497 157.913 116.015 152.867 116.015H69.176C64.13 116.015 62.027 113.497 63.078 108.355L73.172 54.528C74.118 49.386 77.167 46.868 82.214 46.868H165.904C170.951 46.868 173.053 49.386 172.002 54.528ZM182.095 0.7H83.265C42.6813 0.7 19.5508 16.1242 13.7682 46.868L0.731 116.12C-5.0516 146.863 12.2963 162.288 52.8798 162.288H151.71C192.294 162.288 215.424 146.863 221.207 116.12L234.244 46.868C240.027 16.1242 222.679 0.7 182.095 0.7Z", fill: "#00D6FE" }) });
+  }
+
+  // src/primitives/cards.tsx
+  var import_react9 = __toESM(require_react());
+  var import_jsx_runtime6 = __toESM(require_jsx_runtime());
+  function PLiveGameCard() {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { minWidth: 240, flex: 1, borderRadius: T3.radii.card, overflow: "hidden", flexShrink: 0 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { background: c.gray200, borderRadius: `${T3.radii.card}px ${T3.radii.card}px 0 0` }, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: `${T3.spacing.md}px ${T3.spacing.lg}px` }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PLiveBadge, {}),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { fontFamily: F3, fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.medium, color: c.black }, children: "21 NOV, 2024" })
+      ] }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { background: c.gray100, borderRadius: `0 0 ${T3.radii.card}px ${T3.radii.card}px` }, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { display: "flex", alignItems: "center", padding: `${T3.spacing.md}px ${T3.spacing.lg}px` }, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T3.spacing.sm, width: "100%" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T3.spacing.sm2 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PTeamRow, { name: "M. Kiryat Gat", score: "87", isWinner: true }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PTeamRow, { name: "H. Haifa", score: "79", isWinner: false })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { fontFamily: F3, fontSize: T3.typography.sizes.mini, fontWeight: T3.typography.weights.medium, color: c.gray400 }, children: "Liga Leumit (Winner League)" }) })
+      ] }) }) })
+    ] });
+  }
+  function PGameResultCard() {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { background: c.gray100, borderRadius: T3.radii.card, display: "flex", gap: T3.spacing.lg, marginBottom: T3.spacing.md, height: 116, overflow: "hidden" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { width: 72, flexShrink: 0, background: c.gray200, borderRadius: `${T3.radii.card}px 0 0 ${T3.radii.card}px`, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.bold, color: c.black, lineHeight: "24px" }, children: "20" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.bold, color: c.black, lineHeight: "16px" }, children: "NOV" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { fontSize: T3.typography.sizes.mini, fontWeight: T3.typography.weights.regular, color: c.black, lineHeight: "15px" }, children: "2024" })
+      ] }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: T3.spacing.sm, paddingRight: T3.spacing.lg }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PTeamRow, { name: "Maccabi Kiryat Gat", score: "89", isWinner: true, logoSize: 27, fontWeight: 400, gap: 8 }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PTeamRow, { name: "Ironi Nahariya", score: "77", isWinner: false, logoSize: 27, fontWeight: 400, gap: 8 }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { fontSize: T3.typography.sizes.mini, fontWeight: T3.typography.weights.regular, color: c.gray400 }, children: "Liga Leumit (Winner League)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PBadge, { variant: "highlights" })
+        ] })
+      ] })
+    ] });
+  }
+  function PScoreCard() {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { background: c.gray100, borderRadius: T3.radii.card, padding: T3.spacing.lg, width: "100%", maxWidth: 398, boxSizing: "border-box" }, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T3.spacing.sm }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: T3.spacing.sm }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T3.spacing.md }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { width: 44, height: 44, minWidth: 44, borderRadius: "50%", background: c.white, flexShrink: 0 } }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { fontSize: `clamp(${T3.typography.sizes.xl}px, 6vw, ${T3.typography.sizes.h1}px)`, fontWeight: T3.typography.weights.regular, color: c.black }, children: "89" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.regular, color: c.black, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }, children: "M. Kiryat Gat" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.regular, color: c.gray500 }, children: "1st" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: `0 ${T3.spacing.xs}px` }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.regular, color: c.gray500 }, children: "Final" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.regular, color: c.gray500 }, children: "20 NOV 2024" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: T3.spacing.sm }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T3.spacing.md }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { fontSize: `clamp(${T3.typography.sizes.xl}px, 6vw, ${T3.typography.sizes.h1}px)`, fontWeight: T3.typography.weights.regular, color: c.gray500 }, children: "77" }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { width: 44, height: 44, minWidth: 44, borderRadius: "50%", background: c.white, flexShrink: 0 } })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.regular, color: c.gray500, textAlign: "right", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }, children: "I. Nahariya" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.regular, color: c.gray500, textAlign: "right" }, children: "5th" })
+      ] })
+    ] }) });
+  }
+  function LockSvg3({ size = 11, fill = LIGHT.premiumYellow }) {
+    const w = size;
+    const h = size * (10 / 8);
+    return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("svg", { width: w, height: h, viewBox: "0 0 8 10", fill: "none", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("path", { clipRule: "evenodd", d: "M7.02621 4.06889H6.73849L6.73733 2.70111C6.73616 1.21111 5.46535 -0.00110943 3.90332 1.67782e-06C2.3413 0.00111279 1.07048 1.21333 1.07164 2.70333L1.07397 4.07111H0.971466C0.434483 4.07222 -0.00115988 4.48778 4.94171e-06 5V9.07222C4.94171e-06 9.58444 0.436813 10 0.973795 10L7.02853 9.99667C7.56552 9.99667 8.00116 9.58111 8 9.06889V4.99556C8 4.48333 7.56319 4.06889 7.02621 4.06889ZM2.11765 4.07111L2.11532 2.70333C2.11532 1.76222 2.91672 0.996668 3.90332 0.995557C4.88992 0.995557 5.69248 1.76111 5.69248 2.70111L5.69481 4.06889L2.11765 4.07111Z", fill, fillRule: "evenodd" }) });
+  }
+  function PHighlightCard2({ title = "Weiss with the dimes", date = "NOV 13, 2025", duration = "1:23", locked = true, emoji = "\u{1F3C0}" }) {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { position: "relative", width: 130, height: 190, borderRadius: T3.radii.badge, overflow: "hidden", background: c.heroBg, flexShrink: 0 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { position: "absolute", inset: 0, background: "linear-gradient(135deg, #2a4a7f 0%, #1a3a5c 40%, #3a6a9f 70%, #1a2a4a 100%)" } }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { position: "absolute", top: 6, left: 6, background: "rgba(0,0,0,0.55)", borderRadius: T3.radii.pill, padding: "1px 5px", zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { fontFamily: F3, fontWeight: T3.typography.weights.medium, fontSize: T3.typography.sizes.micro, color: "#FFFFFF", lineHeight: 1 }, children: duration }) }),
+      locked ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { position: "absolute", top: 6, right: 6, width: 24, height: 24, background: c.premiumDark, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2, border: `${T3.strokes.medium}px solid ${c.premiumYellow}`, boxSizing: "border-box" }, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(LockSvg3, { size: 8, fill: c.premiumYellow }) }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: "50%", background: c.gray500, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Play, { size: 10, color: c.jerseyStroke, fill: c.jerseyStroke }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { position: "absolute", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)", padding: "24px 8px 8px", zIndex: 1 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.bold, color: c.white, lineHeight: "14px" }, children: [
+          emoji,
+          " ",
+          title
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.micro, fontWeight: T3.typography.weights.regular, color: c.gray300, marginTop: 3 }, children: date })
+      ] })
+    ] });
+  }
+  function PNotificationItem2({ jerseyNumber = 4, text = '"Player #4 Highlight" from the game "S.D Spartans vs. Logan Thunder (121-89, Nov 13, 2025)" is now ready!' }) {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", gap: T3.spacing.md, padding: `${T3.spacing.md2}px 0`, borderBottom: `1px solid ${c.gray100}`, alignItems: "flex-start" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { position: "relative", flexShrink: 0 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("svg", { width: 50, height: 50 * (67 / 73), viewBox: "0 0 73 73", fill: "none", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("path", { d: JERSEY_PATH_73, fill: c.jerseyRed, stroke: c.white, strokeWidth: T3.strokes.thick }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -38%)", fontFamily: F3, fontSize: T3.typography.sizes.h3, fontWeight: T3.typography.weights.extraBold, color: c.white }, children: jerseyNumber })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { fontFamily: F3, fontSize: T3.typography.sizes.body2, fontWeight: T3.typography.weights.regular, color: c.black, lineHeight: 1.5, flex: 1 }, children: text })
     ] });
   }
   function PNotificationCenter() {
-    const c = useColors();
-    const [fo, setFo] = (0, import_react3.useState)(false);
+    const c = useColors2();
+    const [fo, setFo] = (0, import_react9.useState)(false);
     var items = [
       { num: 4, text: '"Player #4 Highlight" from the game "S.D Spartans vs. Logan Thunder (121-89, Nov 13, 2025)" is now ready!' },
       { num: 11, text: '"Player #11 Highlight" from the game "S.D Spartans vs. Logan Thunder (121-89, Nov 13, 2025)" is now ready!' },
       { num: 4, text: '"Player #4 Highlight" from the game "S.D Spartans vs. Logan Thunder (121-89, Nov 13, 2025)" is now ready!' }
     ];
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { role: "region", "aria-label": "Notification Center", style: { width: "100%", maxWidth: 380, background: c.white, borderRadius: T.radii.card, boxShadow: "0 8px 30px rgba(0,0,0,0.15)", overflow: "hidden" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${c.gray100}` }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { style: { margin: 0, fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.black }, children: "Notification Center" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onFocus: () => setFo(true), onBlur: () => setFo(false), "aria-label": "Clear all notifications", style: { background: "none", border: "none", fontFamily: F, fontSize: T.typography.sizes.body2, color: c.gray400, cursor: "pointer", borderRadius: T.radii.sm, ...fo ? focusRing(c) : {} }, children: "Clear all" })
+    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { role: "region", "aria-label": "Notification Center", style: { width: "100%", maxWidth: 380, background: c.white, borderRadius: T3.radii.card, boxShadow: "0 8px 30px rgba(0,0,0,0.15)", overflow: "hidden" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${c.gray100}` }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { style: { margin: 0, fontFamily: F3, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.bold, color: c.black }, children: "Notification Center" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { onFocus: () => setFo(true), onBlur: () => setFo(false), "aria-label": "Clear all notifications", style: { background: "none", border: "none", fontFamily: F3, fontSize: T3.typography.sizes.body2, color: c.gray400, cursor: "pointer", borderRadius: T3.radii.sm, ...fo ? focusRing(c) : {} }, children: "Clear all" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { padding: "0 20px", maxHeight: 320, overflowY: "auto" }, children: items.map(function(it, i) {
-        return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PNotificationItem, { jerseyNumber: it.num, text: it.text }, i);
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { padding: "0 20px", maxHeight: 320, overflowY: "auto" }, children: items.map(function(it, i) {
+        return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PNotificationItem2, { jerseyNumber: it.num, text: it.text }, i);
       }) })
     ] });
   }
-  function PMenuListItem({ label, badge, variant = "default", onClick, _forceState }) {
-    const c = useColors();
-    const [hovered, setHovered] = (0, import_react3.useState)(false);
-    const [pressed, setPressed] = (0, import_react3.useState)(false);
-    const [fo, setFo] = (0, import_react3.useState)(false);
-    const state = _forceState || (pressed ? "active" : hovered ? "hover" : "default");
-    var clr = variant === "link" ? c.primary : variant === "danger" ? c.errorRed : c.black;
-    var bg = state === "active" ? c.cardHoverBg : state === "hover" ? c.gray50 : "transparent";
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-      "button",
-      {
-        onClick,
-        "aria-label": label,
-        onMouseEnter: () => setHovered(true),
-        onMouseLeave: () => {
-          setHovered(false);
-          setPressed(false);
-        },
-        onMouseDown: () => setPressed(true),
-        onMouseUp: () => setPressed(false),
-        onFocus: () => setFo(true),
-        onBlur: () => setFo(false),
-        style: { display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: `${T.spacing.lg}px ${T.spacing.sm}px`, margin: "0 -8px", background: bg, border: "none", borderBottom: `1px solid ${c.gray100}`, cursor: "pointer", fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.regular, color: clr, textAlign: "left", borderRadius: state !== "default" ? 8 : 0, transition: "background 0.15s", ...fo ? focusRing(c) : {} },
-        children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-            label,
-            badge !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { color: c.primary, marginLeft: T.spacing.xs }, children: [
-              "(",
-              badge,
-              ")"
-            ] })
-          ] }),
-          variant !== "danger" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronDown, { size: 16, color: c.gray400, style: { transform: "rotate(-90deg)" } })
-        ]
-      }
-    );
+
+  // src/primitives/stats.tsx
+  var import_react10 = __toESM(require_react());
+  var import_jsx_runtime7 = __toESM(require_jsx_runtime());
+  function PTeamRow2({ name, score, isWinner = true, logoSize = 28, fontSize = 16, fontWeight = 500, gap = 12 }) {
+    const c = useColors2();
+    const color = isWinner ? c.black : c.gray500;
+    return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", alignItems: "center", height: logoSize }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", alignItems: "center", gap, flex: 1 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PTeamLogo, { size: logoSize, name }),
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { fontFamily: F3, fontSize, fontWeight, color }, children: name })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { fontFamily: F3, fontSize, fontWeight, color }, children: score })
+    ] });
   }
-  function PClaimedPlayerCard({ teamName = "S.D Spartans", playerName = "Weiss Tal", number = 11, position = "Guard", height = "6'0" }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.cardBg, borderRadius: T.radii.card, padding: T.spacing.lg, display: "flex", alignItems: "center", gap: T.spacing.md }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 52, height: 52, borderRadius: "50%", background: c.gray300, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(User, { size: 24, color: c.gray400 }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.medium, color: c.gray400 }, children: teamName }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.black }, children: playerName }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.regular, color: c.gray500 }, children: [
-          "#",
-          number,
-          ", ",
-          position,
-          ", ",
-          height
-        ] })
+  function PTeamStatsBar({ label, leftVal, rightVal }) {
+    const c = useColors2();
+    const total = leftVal + rightVal;
+    const leftPercent = leftVal / total * 100;
+    const rightPercent = rightVal / total * 100;
+    return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { padding: "16px 20px", fontFamily: F3 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T3.spacing.sm2, marginBottom: T3.spacing.sm2 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.medium, color: c.darkText, width: 28, textAlign: "left", flexShrink: 0 }, children: leftVal }),
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { flex: 1, fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.medium, color: c.darkText, textAlign: "center" }, children: label }),
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.medium, color: c.darkText, width: 28, textAlign: "right", flexShrink: 0 }, children: rightVal })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", gap: T3.spacing.sm2 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { flex: 1, height: 8, background: c.barTrack, borderRadius: T3.radii.sm, display: "flex", justifyContent: "flex-end" }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { width: `${leftPercent}%`, height: 8, background: c.barRed, borderRadius: T3.radii.sm } }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { flex: 1, height: 8, background: c.barTrack, borderRadius: T3.radii.sm, display: "flex", justifyContent: "flex-start" }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { width: `${rightPercent}%`, height: 8, background: c.barGray, borderRadius: T3.radii.sm } }) })
       ] })
     ] });
   }
-  function PHighlightCard({ title = "Weiss with the dimes", date = "NOV 13, 2025", duration = "1:23", locked = true, emoji = "\u{1F3C0}" }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "relative", width: 130, height: 190, borderRadius: T.radii.badge, overflow: "hidden", background: c.heroBg, flexShrink: 0 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", inset: 0, background: "linear-gradient(135deg, #2a4a7f 0%, #1a3a5c 40%, #3a6a9f 70%, #1a2a4a 100%)" } }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", top: 6, left: 6, background: "rgba(0,0,0,0.55)", borderRadius: T.radii.pill, padding: "1px 5px", zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontWeight: T.typography.weights.medium, fontSize: T.typography.sizes.micro, color: "#FFFFFF", lineHeight: 1 }, children: duration }) }),
-      locked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", top: 6, right: 6, width: 24, height: 24, background: c.premiumDark, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2, border: `${T.strokes.medium}px solid ${c.premiumYellow}`, boxSizing: "border-box" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockSvg, { size: 8, fill: c.premiumYellow }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: "50%", background: c.gray500, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { size: 10, color: c.jerseyStroke, fill: c.jerseyStroke }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "absolute", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)", padding: "24px 8px 8px", zIndex: 1 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.bold, color: c.white, lineHeight: "14px" }, children: [
-          emoji,
-          " ",
-          title
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.micro, fontWeight: T.typography.weights.regular, color: c.gray300, marginTop: 3 }, children: date })
-      ] })
-    ] });
-  }
-  function PHighlightsBadge() {
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBadge, { variant: "highlights" });
-  }
-  function AthleteProfileCard({
-    name = "TAL WEISS",
-    number = 1,
-    position = "Guard",
-    teamName = "S.D Spartans",
-    teamLogoUrl,
-    accentColor = "#007cbe",
-    photoUrl,
-    onBack,
-    onShare,
-    onTeamTap
-  }) {
-    const c = useColors();
-    const nameParts = name.trim().toUpperCase().split(" ");
-    const firstName = nameParts[0] ?? "";
-    const lastName = nameParts.slice(1).join(" ");
-    const chevronR = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronDown, { size: 12, color: accentColor, style: { transform: "rotate(-90deg)" } });
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { width: 390, fontFamily: F, background: `linear-gradient(180deg,${c.white} 0%,${c.gray100} 25%,${c.gray200} 50%,${c.gray100} 75%,${c.white} 100%)`, overflowX: "hidden" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBackBar, { showShare: true, onBack, onShare, padding: "24px 16px 0" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { padding: "24px 16px 12px" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.gray50, borderRadius: T.radii.badge, padding: `${T.spacing.xl}px ${T.spacing.lg}px`, display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerPhoto, { size: 120, name, photoUrl }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.sm }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, color: c.gray500, letterSpacing: "0.6px", textTransform: "uppercase" }, children: [
-            "#",
-            number,
-            " |  ",
-            position
+  function PGameLeaders() {
+    const c = useColors2();
+    const stats = [
+      { label: "Points", left: { num: "#22", detail: "22 PTS, 9 REB" }, right: { num: "#9", detail: "19 PTS, 6 REB" } },
+      { label: "Rebounds", left: { num: "#22", detail: "9 REB, 4 OFF" }, right: { num: "#11", detail: "8 REB, 3 OFF" } },
+      { label: "Assists", left: { num: "#11", detail: "7 AST, 30 MIN" }, right: { num: "#7", detail: "6 AST, 28 MIN" } }
+    ];
+    return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { padding: "16px 20px", fontFamily: F3 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("h3", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.bold, color: c.darkText, margin: "0 0 10px" }, children: "Game Leaders" }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: T3.spacing.sm2 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { width: 44, height: 44, borderRadius: "50%", background: c.gray100, border: `${T3.strokes.thin}px solid ${c.gray300}`, overflow: "hidden" } }),
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { width: 44, height: 44, borderRadius: "50%", background: c.gray100, border: `${T3.strokes.thin}px solid ${c.gray300}`, overflow: "hidden" } })
+      ] }),
+      stats.map((s, i) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: T3.spacing.sm2 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { flex: 1, textAlign: "left" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.bold, color: c.darkText, margin: 0 }, children: s.left.num }),
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: { fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.medium, color: c.gray500, margin: 0 }, children: s.left.detail })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.h1, fontWeight: T.typography.weights.extraBold, color: c.darkText, textTransform: "uppercase", lineHeight: "30px" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: firstName }),
-            lastName && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: lastName })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { onClick: onTeamTap, "aria-label": `View ${teamName} team`, style: { display: "flex", gap: T.spacing.sm, alignItems: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 20, name: teamName, logoUrl: teamLogoUrl }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: accentColor }, children: teamName }),
-            chevronR
-          ] })
-        ] })
-      ] }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: `0 ${T.spacing.lg}px`, display: "flex", gap: T.spacing.md }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "Minutes Played", labelLines: ["Minutes", "Played"], value: "1245" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "Games Played", labelLines: ["Games", "Played"], value: "64" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "Tournaments Played", value: "18" })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: `${T.spacing.md}px ${T.spacing.lg}px 0`, display: "flex", gap: T.spacing.md }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "Points Made", labelLines: ["Points", "Made"], value: "100" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "Assists Made", labelLines: ["Assists", "Made"], value: "20" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "Rebounds Made", labelLines: ["Rebounds", "Made"], value: "10" })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { paddingTop: T.spacing.xxl }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { padding: "0 16px 24px" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSectionHeader, { title: "My Highlights", titleSize: 24 }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md2, padding: `0 ${T.spacing.lg}px`, marginBottom: T.spacing.md2 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 1, duration: "0:45", jerseyLabel: "Player\nHighlights" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 1, duration: "1:23", jerseyLabel: "Player\nHighlights" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 1, duration: "0:32", jerseyLabel: "Player\nHighlights" })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md2, padding: `0 ${T.spacing.lg}px` }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 1, duration: "1:05", jerseyLabel: "Player\nHighlights" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 1, duration: "0:55", jerseyLabel: "Player\nHighlights" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 1, duration: "2:10", jerseyLabel: "Player\nHighlights" })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", justifyContent: "center", padding: "24px 0" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSeeAllLink, { label: "See all" }) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "0 16px 32px" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSectionHeader, { title: "Season Stats", titleSize: 24 }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "MPG", value: "23.4" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "PPG", value: "18.6" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "APG", value: "4.5" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatCard, { label: "RPG", value: "3.2" })
-        ] })
-      ] })
-    ] });
-  }
-  var XOutlineIcon = ({ size = 20, color = "#7d899b", strokeWidth: sw = 1.5 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "none", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M4 4l6.5 8L4 20h2l5.5-6.8L16 20h4l-6.8-8.4L19.5 4h-2l-5.2 6.4L8 4H4z", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round" }) });
-  var FacebookOutlineIcon = ({ size = 20, color = "#7d899b", strokeWidth: sw = 1.5 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "none", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3V2z", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round" }) });
-  var InstagramOutlineIcon = ({ size = 20, color = "#7d899b", strokeWidth: sw = 1.5 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "none", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "2", y: "2", width: "20", height: "20", rx: "5", stroke: color, strokeWidth: sw }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "12", cy: "12", r: "5", stroke: color, strokeWidth: sw }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "17.5", cy: "6.5", r: "1", fill: color })
-  ] });
-  var GlobeOutlineIcon = ({ size = 20, color = "#7d899b", strokeWidth: sw = 1.5 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "none", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "12", cy: "12", r: "10", stroke: color, strokeWidth: sw }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ellipse", { cx: "12", cy: "12", rx: "4", ry: "10", stroke: color, strokeWidth: sw }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M2 12h20", stroke: color, strokeWidth: sw })
-  ] });
-  var YouTubeOutlineIcon = ({ size = 20, color = "#7d899b", strokeWidth: sw = 1.5 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "none", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M22.54 6.42a2.78 2.78 0 00-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 00-1.94 2A29 29 0 001 12a29 29 0 00.46 5.58 2.78 2.78 0 001.94 2C5.12 20 12 20 12 20s6.88 0 8.6-.46a2.78 2.78 0 001.94-2A29 29 0 0023 12a29 29 0 00-.46-5.58z", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round" }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9.75 15.02l5.75-3.27-5.75-3.27v6.54z", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round" })
-  ] });
-  var TikTokOutlineIcon = ({ size = 20, color = "#7d899b", strokeWidth: sw = 1.5 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "none", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 12a4 4 0 104 4V4a5 5 0 005 5", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round" }) });
-  var EmailOutlineIcon = ({ size = 20, color = "#7d899b", strokeWidth: sw = 1.5 }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { "aria-hidden": "true", width: size, height: size, viewBox: "0 0 24 24", fill: "none", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "2", y: "4", width: "20", height: "16", rx: "2", stroke: color, strokeWidth: sw }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M22 7l-8.97 5.7a1.94 1.94 0 01-2.06 0L2 7", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round" })
-  ] });
-  function PSocialLinks() {
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.xxl, alignItems: "center", justifyContent: "center" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(XOutlineIcon, {}),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FacebookOutlineIcon, {}),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InstagramOutlineIcon, {}),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GlobeOutlineIcon, {})
-    ] });
-  }
-  function TeamPage({
-    teamName = "TEAM\nNAME",
-    logoUrl,
-    accentColor = "#007cbe",
-    liveCount = 2,
-    upcomingCount = 0,
-    totalCount = 27
-  }) {
-    const c = useColors();
-    const nameParts = teamName.toUpperCase().split("\n");
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { width: 390, fontFamily: F, background: "linear-gradient(180deg,#fff 0%,#efefef 25%,rgba(223,223,223,0.7) 50%,#efefef 75%,#fff 100%)", overflowX: "hidden" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", alignItems: "center", padding: "24px 16px 0" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { "aria-label": "Go back", style: { display: "flex", gap: T.spacing.xs, alignItems: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { size: 14, color: c.gray400, strokeWidth: 2 }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.gray400 }, children: "Back" })
-      ] }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { padding: "24px 16px 0" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.cardBg, borderRadius: T.radii.badge, padding: `${T.spacing.xl}px ${T.spacing.lg}px`, display: "flex", flexDirection: "column", gap: T.spacing.lg }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 120, height: 120, borderRadius: "50%", background: c.white, border: `${T.strokes.medium}px solid ${c.gray100}`, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 80, name: teamName.replace("\n", " "), logoUrl }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.h1, fontWeight: T.typography.weights.extraBold, color: c.black, textTransform: "uppercase", lineHeight: "30px" }, children: nameParts.map((p, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: p }, i)) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.sm, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, color: c.gray500 }, children: [
-                liveCount,
-                " Live"
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { vertical: true, style: { height: 16 } }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, color: c.gray500 }, children: [
-                upcomingCount,
-                " Upcoming"
-              ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { vertical: true, style: { height: 16 } }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, color: c.gray500 }, children: [
-                totalCount,
-                " Total"
-              ] })
-            ] })
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { flex: 1, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", height: 36 }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.medium, color: c.darkText, margin: 0 }, children: s.label }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { flex: 1, textAlign: "right" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.bold, color: c.darkText, margin: 0 }, children: s.right.num }),
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: { fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.medium, color: c.gray500, margin: 0 }, children: s.right.detail })
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "primary", size: "lg", children: "Follow" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSocialLinks, {})
-      ] }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "32px 16px 0" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSectionHeader, { title: "Live", titleSize: 24 }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, overflowX: "auto", paddingBottom: T.spacing.xs }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLiveGameCard, {}),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLiveGameCard, {})
-        ] })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "32px 16px 0" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSectionHeader, { title: "Recent Games", titleSize: 24 }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PGameResultCard, {}),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PGameResultCard, {}),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PGameResultCard, {})
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", justifyContent: "center", padding: "24px 0" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSeeAllLink, { label: "See all" }) })
-      ] })
+        i < stats.length - 1 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PDivider, { color: c.dividerDark, style: { marginBottom: T3.spacing.sm2 } })
+      ] }, s.label)),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { display: "flex", justifyContent: "center", marginTop: T3.spacing.sm2 }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PBtn, { variant: "muted", size: "sm", fullWidth: false, trailingIcon: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(ChevronDown, { size: 14 }), style: { borderRadius: T3.radii.sheet, padding: "8px 28px" }, children: "See All" }) })
     ] });
   }
-  function PTeamFollowCardPreview() {
-    const c = useColors();
-    const [teams, setTeams] = (0, import_react3.useState)([
-      { name: "S.D Spartans Men", followed: true },
-      { name: "Ironi Nahariya", followed: false },
-      { name: "Hapoel Tel Aviv Women", followed: true }
-    ]);
-    const toggle = (idx) => setTeams((prev) => prev.map((t, i) => i === idx ? { ...t, followed: !t.followed } : t));
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 358, display: "flex", alignItems: "center", gap: T.spacing.sm }, children: teams.map((t, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamFollowCard, { teamName: t.name, followed: t.followed, onClick: () => toggle(i) }, i)) });
-  }
-  function PTeamFollowCard({ teamName = "S.D Spartans Men", logoUrl, followed = false, onClick }) {
-    const c = useColors();
-    const [hovered, setHovered] = (0, import_react3.useState)(false);
-    const followLabel = followed ? "Following" : "Follow";
-    const followColor = followed ? c.primary : c.darkText;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-      "button",
-      {
-        onClick,
-        onMouseEnter: () => setHovered(true),
-        onMouseLeave: () => setHovered(false),
-        "aria-pressed": followed,
-        "aria-label": (followed ? "Unfollow " : "Follow ") + teamName,
-        style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, flex: "1 0 0", minWidth: 0, padding: `${T.spacing.md}px ${T.spacing.lg}px ${T.spacing.sm}px ${T.spacing.lg}px`, background: hovered ? c.gray100 : c.gray50, borderRadius: T.radii.badge, border: followed ? `2px solid ${c.primary}` : `1px solid ${c.gray200}`, cursor: "pointer", transition: "background 0.15s, border 0.15s", boxSizing: "border-box" },
-        children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 48, name: teamName, logoUrl }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.darkText, textAlign: "center", lineHeight: "20px", height: 40, overflow: "hidden", alignSelf: "stretch", wordBreak: "break-word", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }, children: teamName }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { style: { alignSelf: "stretch" } }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { height: 18, display: "flex", justifyContent: "center", alignItems: "center", alignSelf: "stretch" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.semibold, color: followColor }, children: followLabel }) })
-        ]
-      }
-    );
-  }
-  function PTeamFollowGrid({ sections, onClick }) {
-    const c = useColors();
-    const defaultSections = [
-      { title: "Following", teams: [
-        { name: "S.D Spartans Men", followed: true },
-        { name: "S.D Spartans Women", followed: true },
-        { name: "Maccabi Kiryat Gat", followed: true }
-      ] },
-      { title: "Men", teams: [
-        { name: "S.D Spartans Men", followed: true },
-        { name: "Ironi Nahariya", followed: false },
-        { name: "Hapoel Tel Aviv", followed: false }
-      ] }
+  function PPlayerStatsTable() {
+    const c = useColors2();
+    const [activeTeam, setActiveTeam] = (0, import_react10.useState)(0);
+    const headers = ["Player", "MIN", "PTS", "REB", "AST"];
+    const rows = [
+      ["#5", "32", "18", "7", "3"],
+      ["#3", "28", "14", "4", "5"],
+      ["#22", "35", "22", "9", "2"],
+      ["#13", "26", "8", "3", "1"],
+      ["#11", "30", "16", "5", "7"],
+      ["#23", "18", "4", "2", "1"],
+      ["#8", "24", "10", "3", "2"],
+      ["#7", "15", "6", "2", "3"]
     ];
-    const secs = sections || defaultSections;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.xl }, children: secs.map((s, si) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.semibold, color: c.black, display: "block", marginBottom: T.spacing.sm }, children: s.title }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.sm }, children: s.teams.map((t, ti) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamFollowCard, { teamName: t.name, followed: t.followed, onClick: () => onClick && onClick(t.name) }, ti)) })
-    ] }, si)) });
-  }
-  function PHomeFollowingSection({
-    items,
-    onTeamClick,
-    onPlayerClick
-  }) {
-    const c = useColors();
-    const SIZE = 56;
-    const defaultItems = [
-      { type: "team", name: "S.D. Spartans Men" },
-      { type: "team", name: "S.D. Spartans Women" },
-      { type: "player", number: 7, teamColor: DEFAULTS.jerseyRed, claimed: true },
-      { type: "player", number: 3, teamColor: DEFAULTS.jerseyRed, claimed: false },
-      { type: "player", number: 11, teamColor: "#0052CC", claimed: false }
-    ];
-    const _items = items ?? defaultItems;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: {
-      display: "flex",
-      gap: T.spacing.md,
-      overflowX: "auto",
-      overflowY: "visible",
-      padding: `${T.spacing.md}px ${T.spacing.lg}px`,
-      scrollbarWidth: "none"
-    }, children: _items.map((item, i) => {
-      if (item.type === "team") {
-        return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { padding: "16px 20px", fontFamily: F3 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { display: "flex", marginBottom: T3.spacing.md2 }, children: ["Maccabi Kiryat Gat", "Ironi Nahariya"].map((team, i) => {
+        return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
           "button",
           {
-            onClick: () => onTeamClick?.(item.name),
-            "aria-label": `Go to ${item.name}`,
-            onMouseEnter: (e) => {
-              e.currentTarget.style.transform = "scale(1.05)";
+            onClick: () => setActiveTeam(i),
+            "aria-label": `Show ${team} stats`,
+            "aria-pressed": activeTeam === i,
+            onFocus: (e) => {
+              e.currentTarget.style.outline = `2px solid ${c.primary}`;
             },
-            onMouseLeave: (e) => {
-              e.currentTarget.style.transform = "scale(1)";
+            onBlur: (e) => {
+              e.currentTarget.style.outline = "none";
             },
-            style: {
-              flexShrink: 0,
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-              transform: "scale(1)",
-              transition: "transform 0.15s ease",
-              width: SIZE,
-              height: SIZE,
-              borderRadius: "50%"
-            },
-            children: item.logoUrl ? (
-              /* real logo from server */
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                "img",
-                {
-                  src: item.logoUrl,
-                  alt: item.name,
-                  style: {
-                    width: SIZE,
-                    height: SIZE,
-                    borderRadius: "50%",
-                    objectFit: "cover",
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.15)"
-                  }
-                }
-              )
-            ) : (
-              /* DS placeholder — logo comes from server in production */
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: {
-                width: SIZE,
-                height: SIZE,
-                borderRadius: "50%",
-                background: c.gray50,
-                border: `1.5px solid ${c.gray200}`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 1px 4px rgba(0,0,0,0.10)"
-              }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { width: SIZE * 0.45, height: SIZE * 0.45, viewBox: "0 0 24 24", fill: "none", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "3", y: "3", width: "18", height: "18", rx: "9", stroke: c.gray300, strokeWidth: "1.5" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "12", cy: "10", r: "3", stroke: c.gray300, strokeWidth: "1.5" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M6 19c0-3.3 2.7-6 6-6s6 2.7 6 6", stroke: c.gray300, strokeWidth: "1.5", strokeLinecap: "round" })
-              ] }) })
-            )
+            style: { flex: 1, background: "none", border: "none", borderBottom: activeTeam === i ? `2px solid ${c.jerseyRed}` : `2px solid ${c.barTrack}`, padding: `0 0 ${T3.spacing.sm}px`, fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.medium, color: activeTeam === i ? c.darkText : c.gray400, cursor: "pointer", fontFamily: F3, borderRadius: T3.radii.sm, outline: "none", outlineOffset: 2 },
+            children: team
           },
-          i
+          team
         );
-      }
-      const color = item.teamColor ?? DEFAULTS.jerseyRed;
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "button",
-        {
-          onClick: () => onPlayerClick?.(item.number),
-          "aria-label": `Player ${item.number}`,
-          onMouseEnter: (e) => {
-            e.currentTarget.style.transform = "scale(1.05)";
-          },
-          onMouseLeave: (e) => {
-            e.currentTarget.style.transform = "scale(1)";
-          },
-          style: {
-            flexShrink: 0,
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: 0,
-            transform: "scale(1)",
-            transition: "transform 0.15s ease",
-            width: SIZE,
-            height: SIZE,
-            borderRadius: "50%",
-            overflow: "hidden",
-            position: "relative"
-          },
-          children: item.claimed && item.photoUrl ? (
-            /* claimed player — real photo */
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              "img",
-              {
-                src: item.photoUrl,
-                alt: `Player ${item.number}`,
-                style: { width: SIZE, height: SIZE, objectFit: "cover", borderRadius: "50%" }
-              }
-            )
-          ) : item.claimed ? (
-            /* claimed player — photo placeholder (face silhouette) */
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: {
-              width: SIZE,
-              height: SIZE,
-              borderRadius: "50%",
-              background: c.gray200,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.15)"
-            }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { width: SIZE * 0.55, height: SIZE * 0.55, viewBox: "0 0 24 24", fill: c.gray400, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "12", cy: "8", r: "4" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M4 20c0-4 3.6-7 8-7s8 3 8 7" })
-            ] }) })
-          ) : (
-            /* unclaimed player — colored circle with number */
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: {
-              width: SIZE,
-              height: SIZE,
-              borderRadius: "50%",
-              background: color,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.2)"
-            }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: {
-              fontFamily: F,
-              fontSize: T.typography.sizes.lg,
-              fontWeight: T.typography.weights.extraBold,
-              color: "#fff",
-              lineHeight: 1
-            }, children: item.number }) })
-          )
-        },
-        i
-      );
-    }) });
+      }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { display: "flex", alignItems: "center", marginBottom: T3.spacing.sm2 }, children: headers.map((h, i) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.medium, color: c.gray400, width: i === 0 ? 80 : void 0, flex: i === 0 ? void 0 : 1, textAlign: i === 0 ? "left" : "center" }, children: h }, h)) }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PDivider, { color: c.barTrack, style: { marginBottom: T3.spacing.sm } }),
+      rows.map((row, ri) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { display: "flex", alignItems: "center", padding: "8px 0" }, children: row.map((cell, ci) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.medium, color: c.darkText, width: ci === 0 ? 80 : void 0, flex: ci === 0 ? void 0 : 1, textAlign: ci === 0 ? "left" : "center" }, children: cell }, ci)) }),
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PDivider, { color: c.jerseyRed, style: { opacity: 0.15 } })
+      ] }, ri))
+    ] });
   }
-  function PAccordion({ items, allowMultiple = false, defaultOpen = null, headerStyle = {}, activeHeaderStyle = {}, contentStyle = {}, chevronSize = 18, borderless = false }) {
-    const c = useColors();
-    const [openIds, setOpenIds] = (0, import_react3.useState)(defaultOpen ? /* @__PURE__ */ new Set([defaultOpen]) : /* @__PURE__ */ new Set());
+  function PStatCard2({ label, value, labelLines }) {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { flex: 1, background: c.cardBg, padding: T3.spacing.md, borderRadius: T3.radii.badge, display: "flex", flexDirection: "column", gap: 2, overflow: "hidden" }, children: [
+      labelLines ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.xxs, fontWeight: T3.typography.weights.medium, color: c.gray500, lineHeight: "16px" }, children: labelLines.map((l, i) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { children: l }, i)) }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.xxs, fontWeight: T3.typography.weights.medium, color: c.gray500, lineHeight: "16px" }, children: label }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.xxl, fontWeight: T3.typography.weights.bold, color: c.darkText, lineHeight: "normal", marginTop: "auto" }, children: value })
+    ] });
+  }
+  function PStatsGrid() {
+    return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: T3.spacing.md }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PStatCard2, { label: "Minutes Played", labelLines: ["Minutes", "Played"], value: "1245" }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PStatCard2, { label: "Games Played", labelLines: ["Games", "Played"], value: "64" }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PStatCard2, { label: "Tournaments Played", labelLines: ["Tournaments", "Played"], value: "18" })
+    ] });
+  }
+  function PSeasonStatsRow() {
+    return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", gap: T3.spacing.md }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PStatCard2, { label: "MPG", value: "23.4" }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PStatCard2, { label: "PPG", value: "18.6" }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PStatCard2, { label: "APG", value: "4.5" }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PStatCard2, { label: "RPG", value: "3.2" })
+    ] });
+  }
+
+  // src/primitives/layout.tsx
+  var import_react11 = __toESM(require_react());
+  var import_jsx_runtime8 = __toESM(require_jsx_runtime());
+  function PDivider2({ color, thickness = 1, spacing = 0, vertical = false, style = {} }) {
+    const c = useColors2();
+    const bg = color || c.gray200;
+    if (vertical) {
+      return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { width: thickness, alignSelf: "stretch", background: bg, marginLeft: spacing, marginRight: spacing, flexShrink: 0, ...style } });
+    }
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { height: thickness, width: "100%", background: bg, marginTop: spacing, marginBottom: spacing, flexShrink: 0, ...style } });
+  }
+  function PBackBar2({ label = "Back", showShare = false, onBack, onShare, padding = "12px 16px" }) {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("button", { onClick: onBack, "aria-label": "Go back", style: { display: "flex", alignItems: "center", gap: T3.spacing.xs2, background: "none", border: "none", cursor: "pointer", padding: 0 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(ArrowLeft, { size: 16, color: c.gray500 }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { style: { fontFamily: F3, fontSize: T3.typography.sizes.sm, fontWeight: T3.typography.weights.medium, color: c.gray500 }, children: label })
+      ] }),
+      showShare && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { onClick: onShare, "aria-label": "Share", style: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Share2, { size: 20, color: c.darkText }) })
+    ] });
+  }
+  function PSectionHeader2({ title, seeAll, onClick, titleSize }) {
+    const c = useColors2();
+    const fs = titleSize ?? T3.typography.sizes.base;
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", paddingRight: 0, marginBottom: T3.spacing.md }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { style: { margin: 0, fontSize: fs, fontWeight: T3.typography.weights.bold, color: c.black }, children: title }),
+      seeAll && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(PBtn, { variant: "link", size: "sm", fullWidth: false, style: { fontSize: T3.typography.sizes.body2 }, onClick, children: "See all >" })
+    ] });
+  }
+  function PSeeAllLink2({ label = "See all", onClick }) {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("button", { onClick, "aria-label": label, style: { background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: T3.spacing.xs, fontFamily: F3, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.medium, color: c.linkBlue }, children: [
+      label,
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("svg", { "aria-hidden": "true", width: "8", height: "8", viewBox: "0 0 8 8", fill: "none", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("path", { d: "M2 1.5L5 4L2 6.5", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }) })
+    ] });
+  }
+  function PInfoAlert({ title, description }) {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { style: { background: c.infoBgPurple, borderRadius: T3.radii.badge, padding: T3.spacing.lg, border: "1px solid rgba(139,92,246,0.15)" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { fontSize: T3.typography.sizes.body2, fontWeight: T3.typography.weights.bold, color: c.claimedPurple, marginBottom: T3.spacing.xs2 }, children: title }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { fontSize: T3.typography.sizes.caption, color: c.gray500 }, children: description })
+    ] });
+  }
+  function PUpgradeBanner() {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { style: { background: c.infoBgPurple, borderRadius: T3.radii.badge, padding: T3.spacing.md, display: "flex", alignItems: "center", gap: T3.spacing.md, border: `${T3.strokes.thin}px solid ${c.premiumAmber}` }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { width: 32, height: 32, borderRadius: "50%", background: c.premiumDark, border: `${T3.strokes.thin}px solid ${c.premiumYellow}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(LockSvg, { size: 12, fill: c.premiumYellow }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { style: { fontSize: T3.typography.sizes.body2, fontWeight: T3.typography.weights.regular, color: c.black, margin: 0, flex: 1, lineHeight: 1.5, fontFamily: F3 }, children: "Upgrade to access personal highlights for all players in this game" }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(PBtn, { variant: "premium", size: "sm", fullWidth: false, style: { padding: "4px 12px", fontSize: T3.typography.sizes.base, borderRadius: T3.radii.pill, flexShrink: 0 }, children: "Upgrade" })
+    ] });
+  }
+  function ChipLockSvg3() {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { width: 20, height: 20, borderRadius: "50%", background: c.premiumDark, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "none" }, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(LockSvg, { size: 8, fill: c.premiumYellow }) });
+  }
+  function PVideoTypeChips() {
+    const c = useColors2();
+    const [active, setActive] = (0, import_react11.useState)("full");
+    const chipBase = { border: "none", borderRadius: T3.radii.chip, padding: `${T3.spacing.sm}px ${T3.spacing.md}px`, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.regular, cursor: "pointer", height: T3.sizes.chipHeight, display: "flex", alignItems: "center", gap: T3.spacing.sm, flexShrink: 0, whiteSpace: "nowrap", boxSizing: "border-box", fontFamily: F3 };
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("style", { children: `.chipScrollHide::-webkit-scrollbar{display:none}` }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "chipScrollHide", style: { display: "flex", gap: T3.spacing.md, marginBottom: T3.spacing.lg, overflowX: "auto", paddingRight: T3.spacing.lg, WebkitOverflowScrolling: "touch", scrollbarWidth: "none", flexWrap: "nowrap" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { onClick: () => setActive("full"), "aria-label": "Full Game", "aria-pressed": active === "full", style: { ...chipBase, background: active === "full" ? c.jerseyRed : c.gray100, color: active === "full" ? c.white : c.black, fontWeight: active === "full" ? 600 : 400 }, children: "Full Game" }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("button", { onClick: () => setActive("condensed"), "aria-label": "Condensed Game", "aria-pressed": active === "condensed", style: { ...chipBase, background: active === "condensed" ? c.jerseyRed : c.gray100, color: active === "condensed" ? c.white : c.black, fontWeight: active === "condensed" ? 600 : 400 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(ChipLockSvg3, {}),
+          " Condensed Game"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("button", { onClick: () => setActive("highlights"), "aria-label": "Game Highlights", "aria-pressed": active === "highlights", style: { ...chipBase, background: active === "highlights" ? c.jerseyRed : c.gray100, color: active === "highlights" ? c.white : c.black, fontWeight: active === "highlights" ? 600 : 400 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(ChipLockSvg3, {}),
+          " Game Highlights"
+        ] })
+      ] })
+    ] });
+  }
+
+  // src/primitives/navigation.tsx
+  var import_react13 = __toESM(require_react());
+
+  // src/primitives/lists.tsx
+  var import_react12 = __toESM(require_react());
+  var import_jsx_runtime9 = __toESM(require_jsx_runtime());
+  function PFollowingRow2({ avatar, title, subtitle, action, borderBottom = true }) {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T3.spacing.md, padding: `${T3.spacing.md}px 0`, borderBottom: borderBottom ? `1px solid ${c.gray100}` : "none" }, children: [
+      avatar,
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.sm, fontWeight: T3.typography.weights.semibold, color: c.darkText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: title }),
+        subtitle && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.caption, color: c.gray400, marginTop: T3.spacing.xxs }, children: subtitle })
+      ] }),
+      action
+    ] });
+  }
+  function PAccordion2({ items, allowMultiple = false, defaultOpen = null, headerStyle = {}, activeHeaderStyle = {}, contentStyle = {}, chevronSize = 18, borderless = false }) {
+    const c = useColors2();
+    const [openIds, setOpenIds] = (0, import_react12.useState)(defaultOpen ? /* @__PURE__ */ new Set([defaultOpen]) : /* @__PURE__ */ new Set());
     const toggle = (id) => {
       setOpenIds((prev) => {
         const next = new Set(allowMultiple ? prev : []);
@@ -14687,19 +14183,19 @@
         return next;
       });
     };
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: items.map((item) => {
+    return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { children: items.map((item) => {
       const isOpen = openIds.has(item.id);
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { borderBottom: borderless ? "none" : `1px solid ${c.gray100}` }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { style: { borderBottom: borderless ? "none" : `1px solid ${c.gray100}` }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
           "button",
           {
             onClick: () => toggle(item.id),
             "aria-expanded": isOpen,
             "aria-label": typeof item.header === "string" ? item.header : "Toggle section",
-            style: { display: "flex", alignItems: "center", width: "100%", padding: `${T.spacing.md2}px 0`, background: "none", border: "none", cursor: "pointer", gap: T.spacing.md, ...headerStyle, ...isOpen ? activeHeaderStyle : {} },
+            style: { display: "flex", alignItems: "center", width: "100%", padding: `${T3.spacing.md2}px 0`, background: "none", border: "none", cursor: "pointer", gap: T3.spacing.md, ...headerStyle, ...isOpen ? activeHeaderStyle : {} },
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: T.spacing.md, textAlign: "left" }, children: item.header }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: T3.spacing.md, textAlign: "left" }, children: item.header }),
+              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
                 ChevronDown,
                 {
                   size: chevronSize,
@@ -14711,35 +14207,38 @@
             ]
           }
         ),
-        isOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { role: "region", style: { paddingBottom: T.spacing.lg, ...contentStyle }, children: item.content })
+        isOpen && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { role: "region", style: { paddingBottom: T3.spacing.lg, ...contentStyle }, children: item.content })
       ] }, item.id);
     }) });
   }
-  function _TabIcon({ icon, active, color }) {
+
+  // src/primitives/navigation.tsx
+  var import_jsx_runtime10 = __toESM(require_jsx_runtime());
+  function _TabIcon2({ icon, active, color }) {
     const s = 24;
     const sw = active ? 2 : 1.5;
-    if (icon === "games") return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { width: s, height: s, viewBox: "0 0 24 24", fill: active ? color : "none", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M6 9H4.5a2.5 2.5 0 010-5C7 4 7 7 7 7" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M18 9h1.5a2.5 2.5 0 000-5C17 4 17 7 17 7" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M18 2H6v7a6 6 0 0012 0V2z" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", { x1: "12", y1: "15", x2: "12", y2: "19" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", { x1: "9", y1: "19", x2: "15", y2: "19" })
+    if (icon === "games") return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("svg", { width: s, height: s, viewBox: "0 0 24 24", fill: active ? color : "none", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("path", { d: "M6 9H4.5a2.5 2.5 0 010-5C7 4 7 7 7 7" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("path", { d: "M18 9h1.5a2.5 2.5 0 000-5C17 4 17 7 17 7" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("path", { d: "M18 2H6v7a6 6 0 0012 0V2z" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("line", { x1: "12", y1: "15", x2: "12", y2: "19" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("line", { x1: "9", y1: "19", x2: "15", y2: "19" })
     ] });
-    if (icon === "saved") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bookmark, { size: s, color, fill: active ? color : "none", strokeWidth: sw });
-    if (icon === "following") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { width: s, height: s, viewBox: "0 0 24 24", fill: active ? color : "none", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" }) });
+    if (icon === "saved") return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Bookmark, { size: s, color, fill: active ? color : "none", strokeWidth: sw });
+    if (icon === "following") return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("svg", { width: s, height: s, viewBox: "0 0 24 24", fill: active ? color : "none", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("path", { d: "M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" }) });
     if (icon === "shop") {
       const bagFill = active ? color : "none";
       const smileStroke = active ? "#fff" : color;
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { width: s, height: s, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "3", y: "8", width: "18", height: "13", rx: "2", fill: bagFill }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M16 8V6a4 4 0 00-8 0v2" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M9 14c1.5 1.5 4.5 1.5 6 0", stroke: smileStroke })
+      return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("svg", { width: s, height: s, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("rect", { x: "3", y: "8", width: "18", height: "13", rx: "2", fill: bagFill }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("path", { d: "M16 8V6a4 4 0 00-8 0v2" }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("path", { d: "M9 14c1.5 1.5 4.5 1.5 6 0", stroke: smileStroke })
       ] });
     }
     return null;
   }
   function PBottomTabBar({ tabs, active, onSelect, accentColor }) {
-    const c = useColors();
+    const c = useColors2();
     const accent = accentColor || c.darkText;
     const defaultTabs = [
       { id: "games", label: "Games", icon: "games" },
@@ -14748,15 +14247,15 @@
       { id: "shop", label: "Shop", icon: "shop" }
     ];
     const _tabs = tabs || defaultTabs;
-    const [_active, _setActive] = (0, import_react3.useState)(active || _tabs[0]?.id || "");
+    const [_active, _setActive] = (0, import_react13.useState)(active || _tabs[0]?.id || "");
     const sel = active !== void 0 ? active : _active;
     const handleSelect = (id) => {
       _setActive(id);
       onSelect?.(id);
     };
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-around", background: c.white, borderTop: `1px solid ${c.gray100}`, padding: "8px 0 12px", width: "100%" }, children: _tabs.map((tab) => {
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-around", background: c.white, borderTop: `1px solid ${c.gray100}`, padding: "8px 0 12px", width: "100%" }, children: _tabs.map((tab) => {
       const isActive = sel === tab.id;
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
+      return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
         "button",
         {
           onClick: () => handleSelect(tab.id),
@@ -14764,8 +14263,8 @@
           "aria-pressed": isActive,
           style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "4px 16px", minWidth: 64 },
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(_TabIcon, { icon: tab.icon, active: isActive, color: isActive ? accent : c.gray400 }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.xxs, fontWeight: isActive ? T.typography.weights.bold : T.typography.weights.regular, color: isActive ? accent : c.gray400 }, children: tab.label })
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(_TabIcon2, { icon: tab.icon, active: isActive, color: isActive ? accent : c.gray400 }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontFamily: F3, fontSize: T3.typography.sizes.xxs, fontWeight: isActive ? T3.typography.weights.bold : T3.typography.weights.regular, color: isActive ? accent : c.gray400 }, children: tab.label })
           ]
         },
         tab.id
@@ -14788,121 +14287,32 @@
     onMenu,
     onShare
   }) {
-    const c = useColors();
+    const c = useColors2();
     const iconColor = c.gray500;
-    const headerBar = /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: `${T.spacing.md}px ${T.spacing.lg}px`, background: c.white }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.sm2 }, children: [
-        logoUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: logoUrl, alt: orgName, style: { width: 36, height: 36, borderRadius: T.radii.thumb, objectFit: "cover" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 36, height: 36, borderRadius: T.radii.thumb, background: c.gray100, display: "flex", alignItems: "center", justifyContent: "center", border: `1px dashed ${c.gray300}` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: c.gray400, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "3", y: "3", width: "18", height: "18", rx: "2" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: "8.5", cy: "8.5", r: "1.5" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "m21 15-5-5L5 21" })
+    const headerBar = /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: `${T3.spacing.md}px ${T3.spacing.lg}px`, background: c.white }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T3.spacing.sm2 }, children: [
+        logoUrl ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("img", { src: logoUrl, alt: orgName, style: { width: 36, height: 36, borderRadius: T3.radii.thumb, objectFit: "cover" } }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { width: 36, height: 36, borderRadius: T3.radii.thumb, background: c.gray100, display: "flex", alignItems: "center", justifyContent: "center", border: `1px dashed ${c.gray300}` }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("svg", { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: c.gray400, strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("rect", { x: "3", y: "3", width: "18", height: "18", rx: "2" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("circle", { cx: "8.5", cy: "8.5", r: "1.5" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("path", { d: "m21 15-5-5L5 21" })
         ] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: orgName })
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontFamily: F3, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.bold, color: c.darkText }, children: orgName })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 18 }, children: [
-        showSearch && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: onSearch, "aria-label": "Search", style: { background: "none", border: "none", cursor: "pointer", padding: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, { size: 24, color: iconColor }) }),
-        showNotifications && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: onNotifications, "aria-label": "Notifications", style: { background: "none", border: "none", cursor: "pointer", padding: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBellIcon, { count: notifCount }) }),
-        showMenu && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: onMenu, "aria-label": "Menu", style: { background: "none", border: "none", cursor: "pointer", padding: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Menu, { size: 24, color: iconColor }) })
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 18 }, children: [
+        showSearch && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { onClick: onSearch, "aria-label": "Search", style: { background: "none", border: "none", cursor: "pointer", padding: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Search, { size: 24, color: iconColor }) }),
+        showNotifications && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { onClick: onNotifications, "aria-label": "Notifications", style: { background: "none", border: "none", cursor: "pointer", padding: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PBellIcon, { count: notifCount }) }),
+        showMenu && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { onClick: onMenu, "aria-label": "Menu", style: { background: "none", border: "none", cursor: "pointer", padding: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Menu, { size: 24, color: iconColor }) })
       ] })
     ] });
-    const backBar = variant === "back" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBackBar, { showShare, onBack, onShare, padding: "6px 16px 10px" }) : null;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.white, borderBottom: `1px solid ${c.gray100}` }, children: [
+    const backBar = variant === "back" ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PBackBar, { showShare, onBack, onShare, padding: "6px 16px 10px" }) : null;
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { background: c.white, borderBottom: `1px solid ${c.gray100}` }, children: [
       headerBar,
       backBar
     ] });
   }
-  function PFooter({ orgName = "PBA", logoUrl, links, showPoweredBy = true }) {
-    const c = useColors();
-    const _links = links || [{ label: "About us" }, { label: "FAQ" }, { label: "Privacy" }];
-    const iconCol = c.gray500;
-    const iS = 20;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("footer", { role: "contentinfo", style: { background: c.gray50, padding: "32px 24px 24px", borderTop: `1px solid ${c.gray200}` }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: T.spacing.xl, marginBottom: T.spacing.xl }, children: [
-        logoUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: logoUrl, alt: orgName, style: { width: 28, height: 28, borderRadius: T.radii.xs, objectFit: "contain" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 28, height: 28, borderRadius: T.radii.xs, background: c.primary, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { "aria-hidden": "true", width: "16", height: "16", viewBox: "0 0 18 18", fill: "none", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "1", y: "1", width: "16", height: "16", rx: "3", fill: "white", opacity: "0.9" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "4", y: "4", width: "10", height: "10", rx: "2", fill: c.primary })
-        ] }) }),
-        _links.map((l, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.medium, color: c.darkText, cursor: "pointer" }, children: l.label }, i))
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg2, alignItems: "center", justifyContent: "center", marginBottom: T.spacing.lg2 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FacebookOutlineIcon, { size: iS, color: iconCol }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(XOutlineIcon, { size: iS, color: iconCol }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InstagramOutlineIcon, { size: iS, color: iconCol }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(YouTubeOutlineIcon, { size: iS, color: iconCol }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TikTokOutlineIcon, { size: iS, color: iconCol }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EmailOutlineIcon, { size: iS, color: iconCol })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, color: c.gray400, textAlign: "center", margin: 0, marginBottom: showPoweredBy ? 8 : 0 }, children: [
-        "\xA9 ",
-        (/* @__PURE__ */ new Date()).getFullYear(),
-        " ",
-        orgName,
-        ". All rights reserved"
-      ] }),
-      showPoweredBy && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.bold, color: c.gray500, textAlign: "center", margin: 0 }, children: [
-        "Powered by ",
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { letterSpacing: 0.5 }, children: "Pixellot" })
-      ] })
-    ] });
-  }
-  function PCompetitionFollowList({ competitions, onToggleFollow }) {
-    const c = useColors();
-    const defaultComps = [
-      { name: "Varsity", teamCount: 14, teams: [
-        { name: "Riverside Mustangs", followed: false },
-        { name: "Oakwood Eagles", followed: false },
-        { name: "Valley Vista Cougars", followed: false },
-        { name: "Lakeside Lancers", followed: false },
-        { name: "Capital City Cavaliers", followed: false },
-        { name: "Bayshore Hawks", followed: false }
-      ] },
-      { name: "Junior Varsity", teamCount: 12, teams: [] },
-      { name: "Regional", teamCount: 10, teams: [] },
-      { name: "Women's Varsity", teamCount: 10, teams: [] },
-      { name: "Women's JV", teamCount: 10, teams: [] }
-    ];
-    const _comps = competitions || defaultComps;
-    const [follows, setFollows] = (0, import_react3.useState)({});
-    const totalFollowed = Object.values(follows).filter(Boolean).length;
-    const toggleFollow = (cIdx, tIdx) => {
-      const key = `${cIdx}-${tIdx}`;
-      setFollows((prev) => ({ ...prev, [key]: !prev[key] }));
-      onToggleFollow?.(cIdx, tIdx);
-    };
-    const accordionItems = _comps.map((comp, ci) => {
-      const followedInComp = comp.teams.filter((_, ti) => follows[`${ci}-${ti}`]).length;
-      return {
-        id: `comp-${ci}`,
-        header: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 44, name: comp.name }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: comp.name }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: [
-              comp.teamCount,
-              " teams",
-              followedInComp > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-                " \xB7 ",
-                followedInComp,
-                " following"
-              ] })
-            ] })
-          ] })
-        ] }),
-        content: comp.teams.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: T.spacing.sm }, children: comp.teams.map((team, ti) => {
-          const isFollowed = !!follows[`${ci}-${ti}`];
-          return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamFollowCard, { teamName: team.name, followed: isFollowed, onClick: () => toggleFollow(ci, ti) }, ti);
-        }) }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray400, padding: "8px 0" }, children: "No teams available" })
-      };
-    });
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { width: 390, fontFamily: F, background: c.white, padding: `0 ${T.spacing.lg}px` }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { marginBottom: T.spacing.lg }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSearchBar, { placeholder: "Search any team or competition...", readOnly: true }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAccordion, { items: accordionItems, headerStyle: { padding: `${T.spacing.lg}px 0` } }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { padding: "16px 0 24px" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "primary", size: "lg", fullWidth: true, children: totalFollowed > 0 ? `Continue (${totalFollowed})` : "Continue" }) })
-    ] });
-  }
   function PSideMenu({ variant = "org", orgName = "PBA", orgSubtitle = "Basketball Association", logoUrl, items, userName = "Brenden Rogers", userInitials = "BR" }) {
-    const c = useColors();
-    const [imgError, setImgError] = (0, import_react3.useState)(false);
+    const c = useColors2();
+    const [imgError, setImgError] = (0, import_react13.useState)(false);
     const defaultOrgItems = [
       { label: "Divisions", subItems: ["Varsity", "Junior Varsity", "Regional", "Women's Varsity", "Women's JV"] },
       { label: "Tournaments" },
@@ -14927,218 +14337,254 @@
     const _items = items || (variant === "profile" ? defaultProfileItems : defaultOrgItems);
     const _profilePlain = profilePlainItems;
     const firstPlainIdx = _items.findIndex((it) => !it.subItems || it.subItems.length === 0);
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", width: "100%", height: 520, position: "relative", borderRadius: T.radii.card, overflow: "hidden" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", inset: 0, background: c.overlay } }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("nav", { role: "navigation", "aria-label": "Side menu", style: { position: "absolute", right: 0, top: 0, bottom: 0, width: 300, background: c.white, padding: "20px 20px 24px", display: "flex", flexDirection: "column", overflowY: "auto" }, children: [
-        variant === "profile" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.sm2, marginBottom: T.spacing.lg }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAvatar, { initials: userInitials, size: 36 }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.black, flex: 1 }, children: userName }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", color: c.black, display: "flex", borderRadius: T.radii.sm }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 20 }) })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.sm2, marginBottom: T.spacing.xl }, children: [
-          logoUrl && !imgError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: logoUrl, alt: orgName, onError: () => setImgError(true), style: { width: 40, height: 40, borderRadius: T.radii.logo, objectFit: "contain" } }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 40, height: 40, borderRadius: T.radii.logo, background: c.gray100, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", { "aria-hidden": "true", width: "22", height: "22", viewBox: "0 0 24 24", fill: "none", stroke: c.gray400, strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "3", y: "3", width: "18", height: "18", rx: "4" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "7", y: "7", width: "4", height: "4", rx: "1" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "13", y: "7", width: "4", height: "4", rx: "1" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "7", y: "13", width: "4", height: "4", rx: "1" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", { x: "13", y: "13", width: "4", height: "4", rx: "1" })
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", width: "100%", height: 520, position: "relative", borderRadius: T3.radii.card, overflow: "hidden" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { position: "absolute", inset: 0, background: c.overlay } }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("nav", { role: "navigation", "aria-label": "Side menu", style: { position: "absolute", right: 0, top: 0, bottom: 0, width: 300, background: c.white, padding: "20px 20px 24px", display: "flex", flexDirection: "column", overflowY: "auto" }, children: [
+        variant === "profile" ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T3.spacing.sm2, marginBottom: T3.spacing.lg }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PAvatar, { initials: userInitials, size: 36 }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontFamily: F3, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.bold, color: c.black, flex: 1 }, children: userName }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { "aria-label": "Close", style: { background: "none", border: "none", cursor: "pointer", color: c.black, display: "flex", borderRadius: T3.radii.sm }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(X, { size: 20 }) })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T3.spacing.sm2, marginBottom: T3.spacing.xl }, children: [
+          logoUrl && !imgError ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("img", { src: logoUrl, alt: orgName, onError: () => setImgError(true), style: { width: 40, height: 40, borderRadius: T3.radii.logo, objectFit: "contain" } }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { width: 40, height: 40, borderRadius: T3.radii.logo, background: c.gray100, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("svg", { "aria-hidden": "true", width: "22", height: "22", viewBox: "0 0 24 24", fill: "none", stroke: c.gray400, strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("rect", { x: "3", y: "3", width: "18", height: "18", rx: "4" }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("rect", { x: "7", y: "7", width: "4", height: "4", rx: "1" }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("rect", { x: "13", y: "7", width: "4", height: "4", rx: "1" }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("rect", { x: "7", y: "13", width: "4", height: "4", rx: "1" }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("rect", { x: "13", y: "13", width: "4", height: "4", rx: "1" })
           ] }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: orgName }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, color: c.gray400 }, children: orgSubtitle })
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { flex: 1 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.bold, color: c.darkText }, children: orgName }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.caption, color: c.gray400 }, children: orgSubtitle })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { "aria-label": "Close", style: { width: 32, height: 32, borderRadius: "50%", background: c.gray100, border: "none", cursor: "pointer", color: c.gray400, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 18 }) })
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { "aria-label": "Close", style: { width: 32, height: 32, borderRadius: "50%", background: c.gray100, border: "none", cursor: "pointer", color: c.gray400, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(X, { size: 18 }) })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { flex: 1 }, children: [
           _items.map((item, i) => {
             const hasChildren = item.subItems && item.subItems.length > 0;
             if (hasChildren) {
-              return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAccordion, { chevronSize: 16, borderless: true, activeHeaderStyle: { background: c.gray50, borderRadius: T.radii.logo, margin: "0 -8px", padding: "14px 8px" }, items: [{
+              return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PAccordion2, { chevronSize: 16, borderless: true, activeHeaderStyle: { background: c.gray50, borderRadius: T3.radii.logo, margin: "0 -8px", padding: "14px 8px" }, items: [{
                 id: `menu-${i}`,
-                header: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: 1, fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.regular, color: c.darkText }, children: item.label }),
-                content: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { paddingLeft: T.spacing.lg }, children: item.subItems.map((sub, si) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { "aria-label": sub, style: { display: "block", width: "100%", padding: `${T.spacing.sm2}px 0`, background: "none", border: "none", cursor: "pointer", fontFamily: F, fontSize: T.typography.sizes.sm, color: c.darkText, textAlign: "left" }, children: sub }, si)) })
+                header: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { flex: 1, fontFamily: F3, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.regular, color: c.darkText }, children: item.label }),
+                content: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { paddingLeft: T3.spacing.lg }, children: item.subItems.map((sub, si) => /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { "aria-label": sub, style: { display: "block", width: "100%", padding: `${T3.spacing.sm2}px 0`, background: "none", border: "none", cursor: "pointer", fontFamily: F3, fontSize: T3.typography.sizes.sm, color: c.darkText, textAlign: "left" }, children: sub }, si)) })
               }] }, i);
             }
             return null;
           }),
-          variant === "profile" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText, marginTop: T.spacing.md, marginBottom: T.spacing.sm2 }, children: "Following" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.gray50, borderRadius: T.radii.card, padding: `${T.spacing.md}px ${T.spacing.md}px`, marginBottom: T.spacing.md }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.semibold, color: c.gray400, marginBottom: T.spacing.sm2 }, children: "Teams" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.sm2, marginBottom: T.spacing.md }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "S.D Spartans Men" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: 9, color: c.darkText, textAlign: "center", maxWidth: 52, lineHeight: 1.2 }, children: "S.D Spartans Men" })
+          variant === "profile" && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.bold, color: c.darkText, marginTop: T3.spacing.md, marginBottom: T3.spacing.sm2 }, children: "Following" }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { background: c.gray50, borderRadius: T3.radii.card, padding: `${T3.spacing.md}px ${T3.spacing.md}px`, marginBottom: T3.spacing.md }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.semibold, color: c.gray400, marginBottom: T3.spacing.sm2 }, children: "Teams" }),
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", gap: T3.spacing.sm2, marginBottom: T3.spacing.md }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PTeamLogo2, { size: 40, name: "S.D Spartans Men" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontFamily: F3, fontSize: 9, color: c.darkText, textAlign: "center", maxWidth: 52, lineHeight: 1.2 }, children: "S.D Spartans Men" })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "S.D Spartans Women" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: 9, color: c.darkText, textAlign: "center", maxWidth: 52, lineHeight: 1.2 }, children: "S.D Spartans Women" })
+                /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PTeamLogo2, { size: 40, name: "S.D Spartans Women" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontFamily: F3, fontSize: 9, color: c.darkText, textAlign: "center", maxWidth: 52, lineHeight: 1.2 }, children: "S.D Spartans Women" })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 40, height: 40, borderRadius: "50%", border: `1.5px dashed ${c.gray300}`, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 18, color: c.gray400, lineHeight: 1 }, children: "+" }) }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: 9, color: c.gray400 }, children: "Add..." })
+                /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { width: 40, height: 40, borderRadius: "50%", border: `1.5px dashed ${c.gray300}`, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontSize: 18, color: c.gray400, lineHeight: 1 }, children: "+" }) }),
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontFamily: F3, fontSize: 9, color: c.gray400 }, children: "Add..." })
                 ] })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.semibold, color: c.gray400, marginBottom: T.spacing.sm2 }, children: "Players" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.sm2 }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 4, teamColor: DEFAULTS.jerseyRed }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: 9, color: c.darkText, textAlign: "center", maxWidth: 52, lineHeight: 1.2 }, children: "S.D Spartans Man #4" })
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.semibold, color: c.gray400, marginBottom: T3.spacing.sm2 }, children: "Players" }),
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", gap: T3.spacing.sm2 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PPlayerNumberBadge, { number: 4, teamColor: DEFAULTS.jerseyRed }),
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontFamily: F3, fontSize: 9, color: c.darkText, textAlign: "center", maxWidth: 52, lineHeight: 1.2 }, children: "S.D Spartans Man #4" })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 11, teamColor: DEFAULTS.jerseyRed }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: 9, color: c.darkText, textAlign: "center", maxWidth: 52, lineHeight: 1.2 }, children: "S.D Spartans Man #11" })
+                /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PPlayerNumberBadge, { number: 11, teamColor: DEFAULTS.jerseyRed }),
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontFamily: F3, fontSize: 9, color: c.darkText, textAlign: "center", maxWidth: 52, lineHeight: 1.2 }, children: "S.D Spartans Man #11" })
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 40, height: 40, borderRadius: "50%", border: `1.5px dashed ${c.gray300}`, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 18, color: c.gray400, lineHeight: 1 }, children: "+" }) }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: 9, color: c.gray400 }, children: "Add..." })
+                /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }, children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { width: 40, height: 40, borderRadius: "50%", border: `1.5px dashed ${c.gray300}`, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontSize: 18, color: c.gray400, lineHeight: 1 }, children: "+" }) }),
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontFamily: F3, fontSize: 9, color: c.gray400 }, children: "Add..." })
                 ] })
               ] })
             ] })
           ] }),
           (variant === "profile" ? _profilePlain : _items.filter((it) => !it.subItems || it.subItems.length === 0)).map((item, i) => {
             const isLanguage = item.label === "Language";
-            return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-              i === 0 && variant !== "profile" && firstPlainIdx > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { spacing: 8 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { "aria-label": item.label, style: { display: "flex", alignItems: "center", width: "100%", padding: `${T.spacing.md2}px 0`, background: "none", border: "none", cursor: "pointer", gap: T.spacing.md }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: 1, fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.regular, color: c.darkText, textAlign: "left" }, children: item.label }),
-                isLanguage && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray400, marginRight: T.spacing.xs }, children: "English" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronDown, { size: 16, color: c.gray400, style: { transform: "rotate(-90deg)" } })
+            return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { children: [
+              i === 0 && variant !== "profile" && firstPlainIdx > 0 && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PDivider2, { spacing: 8 }),
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("button", { "aria-label": item.label, style: { display: "flex", alignItems: "center", width: "100%", padding: `${T3.spacing.md2}px 0`, background: "none", border: "none", cursor: "pointer", gap: T3.spacing.md }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { flex: 1, fontFamily: F3, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.regular, color: c.darkText, textAlign: "left" }, children: item.label }),
+                isLanguage && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { style: { fontFamily: F3, fontSize: T3.typography.sizes.xs, color: c.gray400, marginRight: T3.spacing.xs }, children: "English" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ChevronDown, { size: 16, color: c.gray400, style: { transform: "rotate(-90deg)" } })
                 ] })
               ] })
             ] }, `plain-${i}`);
           })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { spacing: 8 }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: { display: "flex", alignItems: "center", gap: T.spacing.md, background: "none", border: "none", fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.regular, color: c.errorRed, cursor: "pointer", textAlign: "left", padding: `${T.spacing.lg}px 0` }, children: "Log Out" })
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PDivider2, { spacing: 8 }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { style: { display: "flex", alignItems: "center", gap: T3.spacing.md, background: "none", border: "none", fontFamily: F3, fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.regular, color: c.errorRed, cursor: "pointer", textAlign: "left", padding: `${T3.spacing.lg}px 0` }, children: "Log Out" })
       ] })
     ] });
   }
-  function PMyFollowingList({ teams, players }) {
-    const c = useColors();
-    const _teams = teams || [{ name: "Riverside Mustangs", division: "PBA Varsity Division" }];
-    const _players = players || [{ name: "Marcus Caldwell", number: 1, teamColor: c.primary }];
-    const [unfollowed, setUnfollowed] = (0, import_react3.useState)({});
-    const toggleUnfollow = (key) => setUnfollowed((prev) => ({ ...prev, [key]: !prev[key] }));
-    const visibleTeams = _teams.filter((_, i) => !unfollowed[`t-${i}`]);
-    const visiblePlayers = _players.filter((_, i) => !unfollowed[`p-${i}`]);
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { width: 390, fontFamily: F, background: c.white, padding: `${T.spacing.xl}px ${T.spacing.lg}px` }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: T.spacing.lg }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: [
-          "Teams (",
-          visibleTeams.length,
-          ")"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, leadingIcon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.base, lineHeight: 1 }, children: "+" }), children: "Add" })
+
+  // src/primitives/overlays.tsx
+  var import_jsx_runtime11 = __toESM(require_jsx_runtime());
+  function PPaymentModal() {
+    const c = useColors2();
+    const cardBg = c.gray50;
+    return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { maxWidth: 430, display: "flex", flexDirection: "column", gap: T3.spacing.md2, fontFamily: F3 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { background: cardBg, borderRadius: T3.radii.card, padding: "20px 24px" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { style: { fontSize: T3.typography.sizes.base, fontWeight: T3.typography.weights.medium, color: c.darkText, margin: "0 0 12px" }, children: "Redeem your Access Code here:" }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { position: "relative" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("input", { type: "text", style: { width: "100%", height: 50, background: c.white, border: `1px solid ${c.gray300}`, borderRadius: T3.radii.badge, padding: "0 120px 0 16px", fontSize: T3.typography.sizes.xs, fontFamily: F3, outline: "none", boxSizing: "border-box" } }),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PBtn, { variant: "primary", size: "sm", fullWidth: false, style: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", padding: "8px 24px" }, children: "Submit" })
+        ] })
       ] }),
-      _teams.map((team, i) => {
-        if (unfollowed[`t-${i}`]) return null;
-        return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          PFollowingRow,
-          {
-            avatar: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: team.name, logoUrl: team.logoUrl }),
-            title: team.name,
-            subtitle: team.division,
-            action: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, onClick: () => toggleUnfollow(`t-${i}`), style: { color: c.errorRed }, children: "Unfollow" })
-          },
-          i
-        );
-      }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 28, marginBottom: T.spacing.lg }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: [
-          "Players (",
-          visiblePlayers.length,
-          ")"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, leadingIcon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.base, lineHeight: 1 }, children: "+" }), children: "Add" })
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.medium, color: c.gray500, margin: 0 }, children: "or select your plan" }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { background: cardBg, borderRadius: T3.radii.card, padding: "24px" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { style: { fontSize: T3.typography.sizes.h3, fontWeight: T3.typography.weights.bold, color: c.darkText, margin: "0 0 6px" }, children: "Basic Package" }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.regular, color: c.gray500, margin: "0 0 16px", lineHeight: 1.5 }, children: "Download a single highlight of your favourite moment from the season!" }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { style: { fontSize: T3.typography.sizes.display, fontWeight: T3.typography.weights.bold, color: c.darkText }, children: "$5.00" }),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PBtn, { variant: "primary", size: "lg", fullWidth: false, children: "Buy Now" })
+        ] })
       ] }),
-      _players.map((player, i) => {
-        if (unfollowed[`p-${i}`]) return null;
-        return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          PFollowingRow,
-          {
-            avatar: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: player.number, teamColor: player.teamColor || c.primary }),
-            title: `#${player.number} \u2014 ${player.name}`,
-            action: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, onClick: () => toggleUnfollow(`p-${i}`), style: { color: c.errorRed }, children: "Unfollow" })
-          },
-          i
-        );
-      })
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { background: cardBg, borderRadius: T3.radii.card, padding: "24px", border: `2px solid ${c.premiumYellow}` }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { style: { display: "inline-flex", alignItems: "center", gap: T3.spacing.xs, background: c.grayOverlay, borderRadius: T3.radii.lg, padding: "6px 14px", marginBottom: T3.spacing.sm2 }, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { style: { fontSize: T3.typography.sizes.body2, fontWeight: T3.typography.weights.bold, color: c.darkText }, children: "\u{1F525} Most Popular" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { style: { fontSize: T3.typography.sizes.h3, fontWeight: T3.typography.weights.bold, color: c.darkText, margin: "0 0 6px" }, children: "Premium Package" }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.regular, color: c.gray500, margin: "0 0 14px", lineHeight: 1.5 }, children: "Allows access to all Camera's. You can switch cameras to watch any platform" }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { background: c.gray100, borderRadius: T3.radii.badge, padding: `${T3.spacing.md2}px ${T3.spacing.lg}px`, marginBottom: T3.spacing.md2 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { style: { fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.medium, color: c.gray400, margin: "0 0 8px" }, children: "You will get access to:" }),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T3.spacing.xs2 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T3.spacing.sm }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Check, { size: 16, color: c.successGreen }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.medium, color: c.darkText }, children: "Afrikaanse Ho\xEBr Seunskool U14" })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T3.spacing.sm }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Check, { size: 16, color: c.successGreen }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { style: { fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.medium, color: c.darkText }, children: "Bosh PUP U14" })
+            ] })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { style: { fontSize: T3.typography.sizes.display, fontWeight: T3.typography.weights.bold, color: c.darkText }, children: "$35.00" }),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PBtn, { variant: "premium", size: "lg", fullWidth: false, children: "Buy Now" })
+        ] })
+      ] })
     ] });
   }
-  var EMPTY_PRESETS = {
-    noLiveGames: { icon: "play", title: "No Live Games", subtitle: "There are no live games right now. Check back later!", cta: null },
-    noFollowing: { icon: "user", title: "Not Following Anyone Yet", subtitle: "Follow teams and athletes to see their games and highlights here.", cta: "Browse Teams" },
-    noRecentGames: { icon: "play", title: "No Recent Games", subtitle: "Games you follow will show up here once they're played.", cta: null },
-    noNotifications: { icon: "bell", title: "No Notifications", subtitle: "You're all caught up! New updates will appear here.", cta: null },
-    noHighlights: { icon: "play", title: "No Highlights Yet", subtitle: "Highlights for this game are still being processed.", cta: null },
-    noPersonal: { icon: "play", title: "No Personal Highlights", subtitle: "Claim a player to get personalized highlight reels after each game.", cta: "Claim Player" },
-    noPlayerStats: { icon: "search", title: "Stats Unavailable", subtitle: "Player statistics were not recorded for this game.", cta: null },
-    noFollowedPlayers: { icon: "user", title: "No Followed Players", subtitle: "You're not following any players in this game.", cta: "Browse Players" },
-    noSavedVideos: { icon: "bookmark", title: "No Saved Videos", subtitle: "Videos you bookmark will be saved here for easy access.", cta: null },
-    noSearchResults: { icon: "search", title: "No Results Found", subtitle: "Try a different search term or check for typos.", cta: null },
-    noTeamsFound: { icon: "search", title: "No Teams Found", subtitle: "We couldn't find teams in your area. Try searching manually.", cta: "Search Teams" },
-    noClaimedPlayer: { icon: "user", title: "No Claimed Player", subtitle: "Claim your player profile to unlock personal highlights and career stats.", cta: "Claim Player" }
-  };
-  var ICON_MAP = { play: Play, user: User, bell: Bell, search: Search, bookmark: Bookmark };
-  function PEmptyState({ preset, icon, title, subtitle, cta, onAction }) {
-    const c = useColors();
-    const p = preset ? EMPTY_PRESETS[preset] || {} : {};
-    const _icon = icon || p.icon || "search";
-    const _title = title || p.title || "Nothing Here";
-    const _subtitle = subtitle || p.subtitle || "";
-    const _cta = cta !== void 0 ? cta : p.cta || null;
-    const IconComp = ICON_MAP[_icon] || Search;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: `40px ${T.spacing.xl}px`, textAlign: "center" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 64, height: 64, borderRadius: "50%", background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: T.spacing.lg }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(IconComp, { size: 28, color: c.gray400, role: "img", "aria-label": _title }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.h3, fontWeight: T.typography.weights.bold, color: c.darkText, marginBottom: T.spacing.sm }, children: _title }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.regular, color: c.gray500, lineHeight: 1.5, maxWidth: 280, marginBottom: _cta ? T.spacing.xl : 0 }, children: _subtitle }),
-      _cta && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "primary", size: "md", fullWidth: false, onClick: onAction, children: _cta })
+
+  // src/primitives/players.tsx
+  var import_react14 = __toESM(require_react());
+  var import_jsx_runtime12 = __toESM(require_jsx_runtime());
+  function PJersey2({ number, selected, onClick, color = DEFAULTS.jerseyRed }) {
+    const c = useColors2();
+    const [fo, setFo] = (0, import_react14.useState)(false);
+    return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("button", { onClick, "aria-label": "Jersey number " + number, "aria-pressed": selected, onFocus: () => setFo(true), onBlur: () => setFo(false), style: { position: "relative", width: 73, height: 73, background: "none", border: "none", cursor: "pointer", padding: 0, transition: "transform 0.15s", transform: selected ? "scale(1.1)" : "scale(1)", borderRadius: T3.radii.md, ...fo ? focusRing(c) : {} }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("svg", { viewBox: "0 0 73 73", fill: "none", style: { width: "100%", height: "100%" }, children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+        "path",
+        {
+          d: JERSEY_PATH_73,
+          fill: color,
+          stroke: selected ? c.successGreen : _isLightColor(color) ? c.gray300 : c.jerseyStroke,
+          strokeWidth: selected ? T3.strokes.heavy : T3.strokes.thick
+        }
+      ) }),
+      selected && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { style: { position: "absolute", top: -4, right: -4, width: 20, height: 20, background: c.successGreen, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Check, { size: 12, color: c.jerseyStroke, strokeWidth: 3 }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { style: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-40%)", fontFamily: F3, fontSize: T3.typography.sizes.jersey, fontWeight: T3.typography.weights.bold, color: _isLightColor(color) ? c.darkText : c.jerseyStroke, pointerEvents: "none" }, children: number })
     ] });
   }
-  function PErrorState({ variant = "generic", title, subtitle, onRetry }) {
-    const c = useColors();
-    const variants = {
-      generic: { title: "Something Went Wrong", subtitle: "An unexpected error occurred. Please try again." },
-      network: { title: "Connection Error", subtitle: "Please check your internet connection and try again." },
-      timeout: { title: "Request Timed Out", subtitle: "The server took too long to respond. Please try again." },
-      video: { title: "Video Unavailable", subtitle: "This video failed to load. It may still be processing." },
-      data: { title: "Failed to Load Data", subtitle: "We couldn't load this content right now. Please try again." },
-      auth: { title: "Session Expired", subtitle: "Your session has expired. Please sign in again." }
-    };
-    const v = variants[variant] || variants.generic;
-    const _title = title || v.title;
-    const _sub = subtitle || v.subtitle;
-    const isAuth = variant === "auth";
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", padding: `40px ${T.spacing.xl}px`, textAlign: "center" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 64, height: 64, borderRadius: "50%", background: `${c.errorRed}14`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: T.spacing.lg }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 28, color: c.errorRed, role: "img", "aria-label": _title }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.h3, fontWeight: T.typography.weights.bold, color: c.darkText, marginBottom: T.spacing.sm }, children: _title }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.regular, color: c.gray500, lineHeight: 1.5, maxWidth: 280, marginBottom: T.spacing.xl }, children: _sub }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: isAuth ? "primary" : "muted", size: "md", fullWidth: false, onClick: onRetry, children: isAuth ? "Sign In" : "Try Again" })
+
+  // src/primitives/social.tsx
+  var import_react15 = __toESM(require_react());
+  var import_jsx_runtime13 = __toESM(require_jsx_runtime());
+
+  // src/primitives/states.tsx
+  var import_jsx_runtime14 = __toESM(require_jsx_runtime());
+  function POfflineBanner({ onRetry }) {
+    const c = useColors2();
+    const errBg = c.errorBg;
+    const errBorder = c.errorBorder;
+    return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { role: "alert", style: { display: "flex", alignItems: "center", gap: T3.spacing.md, background: errBg, borderRadius: T3.radii.badge, padding: `${T3.spacing.md}px ${T3.spacing.lg}px`, border: `1px solid ${errBorder}` }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { "aria-hidden": "true", style: { width: 8, height: 8, borderRadius: "50%", background: c.errorRed, flexShrink: 0 } }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { style: { flex: 1 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.xs, fontWeight: T3.typography.weights.semibold, color: c.darkText }, children: "You're offline" }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { style: { fontFamily: F3, fontSize: T3.typography.sizes.caption, fontWeight: T3.typography.weights.regular, color: c.gray500 }, children: "Check your connection and try again" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("button", { onClick: onRetry, "aria-label": "Retry connection", style: { background: "none", border: "none", fontFamily: F3, fontSize: T3.typography.sizes.body2, fontWeight: T3.typography.weights.semibold, color: c.errorRed, cursor: "pointer", flexShrink: 0, borderRadius: T3.radii.sm }, children: "Retry" })
     ] });
+  }
+  function PSkeletonBlock({ width, height, borderRadius, style }) {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { style: {
+      width: width || "100%",
+      height: height || 16,
+      borderRadius: borderRadius || T3.radii.sm,
+      background: `linear-gradient(90deg, ${c.gray100} 25%, ${c.gray50} 50%, ${c.gray100} 75%)`,
+      backgroundSize: "200% 100%",
+      animation: "shimmer 1.5s infinite ease-in-out",
+      ...style
+    } });
+  }
+  function PSkeletonCard() {
+    const c = useColors2();
+    return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { style: { background: c.white, border: `1px solid ${c.gray100}`, borderRadius: T3.radii.md, overflow: "hidden" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { style: { width: "100%", height: 180, background: `linear-gradient(90deg, ${c.gray100} 25%, ${c.gray50} 50%, ${c.gray100} 75%)`, backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite ease-in-out" } }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { style: { padding: T3.spacing.md, display: "flex", flexDirection: "column", gap: T3.spacing.sm }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(PSkeletonBlock, { height: 20, style: { width: "80%" } }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(PSkeletonBlock, { height: 16, style: { width: "100%" } }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(PSkeletonBlock, { height: 16, style: { width: "90%" } })
+      ] })
+    ] });
+  }
+  function PSkeletonInput() {
+    return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(PSkeletonBlock, { height: T3.sizes.inputHeight, borderRadius: T3.radii.sm });
+  }
+  function PLoadingSpinner({ size } = {}) {
+    const c = useColors2();
+    const s = size || 24;
+    return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { style: {
+      width: s,
+      height: s,
+      border: `3px solid ${c.gray100}`,
+      borderTop: `3px solid ${c.primary}`,
+      borderRadius: "50%",
+      animation: "spin 1s linear infinite"
+    } });
+  }
+
+  // src/showcase/previews.tsx
+  var import_jsx_runtime15 = __toESM(require_jsx_runtime());
+  function PropsBlock2({ children, variant = "dark" }) {
+    const c = useColors();
+    const clr = variant === "muted" ? c.gray500 : variant === "subtle" ? c.gray400 : c.darkText;
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.body2, color: clr, lineHeight: 1.8, fontFamily: "monospace" }, children });
+  }
+  function ProseBlock({ children, variant = "muted" }) {
+    const c = useColors();
+    const clr = variant === "subtle" ? c.gray400 : c.gray500;
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.body2, color: clr, lineHeight: 1.6 }, children });
   }
   function PTypographyPreview() {
     const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontFamily: F, display: "flex", flexDirection: "column", gap: T.spacing.sm }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxl, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Page Title \u2014 24px Bold" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xl, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Section Heading \u2014 22px Bold" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.medium, color: c.darkText }, children: "Subtitle \u2014 20px Medium" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.medium, color: c.darkText }, children: "Input / Body / Menu Item \u2014 16px Medium" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.medium, color: c.gray400 }, children: "Button / Tab \u2014 15px Medium" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.semibold, color: c.white, background: c.heroBg, padding: "4px 10px", borderRadius: T.radii.thumb, display: "inline-block" }, children: "Video Label \u2014 14px Semibold White" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.gray400 }, children: "Link / Caption \u2014 14px Medium" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.regular, color: c.darkText }, children: "Notification Text \u2014 13px Regular" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, textTransform: "uppercase", background: c.highlightsBadgeBg, color: c.highlightsBadgeText, padding: "4px 12px", borderRadius: T.radii.badge, display: "inline-block" }, children: "Badge Label \u2014 11px Bold Uppercase" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.jersey, fontWeight: T.typography.weights.bold, color: c.white, background: c.jerseyRed, width: 40, height: 40, borderRadius: T.radii.thumb, display: "flex", alignItems: "center", justifyContent: "center" }, children: "7" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "Jersey Number \u2014 29px Bold White" })
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { fontFamily: F, display: "flex", flexDirection: "column", gap: T.spacing.sm }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.xxl, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Page Title \u2014 24px Bold" }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.xl, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Section Heading \u2014 22px Bold" }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.medium, color: c.darkText }, children: "Subtitle \u2014 20px Medium" }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.medium, color: c.darkText }, children: "Input / Body / Menu Item \u2014 16px Medium" }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.medium, color: c.gray400 }, children: "Button / Tab \u2014 15px Medium" }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.semibold, color: c.white, background: c.heroBg, padding: "4px 10px", borderRadius: T.radii.thumb, display: "inline-block" }, children: "Video Label \u2014 14px Semibold White" }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.gray400 }, children: "Link / Caption \u2014 14px Medium" }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.regular, color: c.darkText }, children: "Notification Text \u2014 13px Regular" }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, textTransform: "uppercase", background: c.highlightsBadgeBg, color: c.highlightsBadgeText, padding: "4px 12px", borderRadius: T.radii.badge, display: "inline-block" }, children: "Badge Label \u2014 11px Bold Uppercase" }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.jersey, fontWeight: T.typography.weights.bold, color: c.white, background: c.jerseyRed, width: 40, height: 40, borderRadius: T.radii.thumb, display: "flex", alignItems: "center", justifyContent: "center" }, children: "7" }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "Jersey Number \u2014 29px Bold White" })
     ] });
   }
   function PSpacingPreview() {
     const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", gap: T.spacing.md, flexWrap: "wrap", alignItems: "flex-end" }, children: Object.entries(T.spacing).map(([k, v]) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: v, height: v, background: c.primary, borderRadius: 2, minWidth: 4, minHeight: 4 } }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, fontWeight: T.typography.weights.semibold, color: c.darkText }, children: k }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, fontFamily: "monospace" }, children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { display: "flex", gap: T.spacing.md, flexWrap: "wrap", alignItems: "flex-end" }, children: Object.entries(T.spacing).map(([k, v]) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { width: v, height: v, background: c.primary, borderRadius: 2, minWidth: 4, minHeight: 4 } }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { style: { fontSize: T.typography.sizes.mini, fontWeight: T.typography.weights.semibold, color: c.darkText }, children: k }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, fontFamily: "monospace" }, children: [
         v,
         "px"
       ] })
@@ -15146,9 +14592,9 @@
   }
   function PSizesPreview() {
     const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.xs2 }, children: Object.entries(T.sizes).map(([k, v]) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", justifyContent: "space-between", padding: "6px 10px", background: c.gray50, borderRadius: T.radii.xs }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.semibold, color: c.darkText }, children: k }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontSize: T.typography.sizes.caption, color: c.gray400, fontFamily: "monospace" }, children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.xs2 }, children: Object.entries(T.sizes).map(([k, v]) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { display: "flex", justifyContent: "space-between", padding: "6px 10px", background: c.gray50, borderRadius: T.radii.xs }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { style: { fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.semibold, color: c.darkText }, children: k }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { style: { fontSize: T.typography.sizes.caption, color: c.gray400, fontFamily: "monospace" }, children: [
         v,
         "px"
       ] })
@@ -15156,32 +14602,17 @@
   }
   function PRadiiPreview() {
     const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", gap: T.spacing.lg, flexWrap: "wrap", alignItems: "flex-end" }, children: Object.entries(T.radii).map(([k, v]) => {
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { display: "flex", gap: T.spacing.lg, flexWrap: "wrap", alignItems: "flex-end" }, children: Object.entries(T.radii).map(([k, v]) => {
       const isPill = k === "pill";
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: isPill ? 80 : 48, height: isPill ? 32 : 48, background: c.primary, borderRadius: isPill ? v : Math.min(v, 24), opacity: 0.15 } }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, fontWeight: T.typography.weights.semibold, color: c.darkText }, children: k }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, fontFamily: "monospace" }, children: [
+      return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { width: isPill ? 80 : 48, height: isPill ? 32 : 48, background: c.primary, borderRadius: isPill ? v : Math.min(v, 24), opacity: 0.15 } }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { style: { fontSize: T.typography.sizes.mini, fontWeight: T.typography.weights.semibold, color: c.darkText }, children: k }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, fontFamily: "monospace" }, children: [
           v,
           "px"
         ] })
       ] }, k);
     }) });
-  }
-  function PropsBlock({ children, variant = "dark" }) {
-    const c = useColors();
-    const clr = variant === "muted" ? c.gray500 : variant === "subtle" ? c.gray400 : c.darkText;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.body2, color: clr, lineHeight: 1.8, fontFamily: "monospace" }, children });
-  }
-  function ProseBlock({ children, variant = "muted" }) {
-    const c = useColors();
-    const clr = variant === "subtle" ? c.gray400 : c.gray500;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.body2, color: clr, lineHeight: 1.6 }, children });
-  }
-  function SpecBlock({ children, variant = "dark", lineHeight = 2 }) {
-    const c = useColors();
-    const clr = variant === "muted" ? c.gray500 : c.darkText;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.body2, color: clr, lineHeight, fontFamily: F }, children });
   }
   function PChipStatesPreview() {
     const c = useColors();
@@ -15206,15 +14637,15 @@
         { s: "disabled", style: { ...base, fontWeight: T.typography.weights.regular, background: c.grayOverlay, color: c.gray400 } }
       ], chip: "Condensed", lock: true }
     ];
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.lg2 }, children: rows.map((r) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: r.label }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: T.spacing.sm }, children: r.states.map(({ s, style }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { style, children: [
-          r.lock && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChipLockSvg, {}),
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.lg2 }, children: rows.map((r) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: r.label }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: T.spacing.sm }, children: r.states.map(({ s, style }) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("button", { style, children: [
+          r.lock && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ChipLockSvg2, {}),
           " ",
           r.chip
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: s })
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: s })
       ] }, s)) })
     ] }, r.label)) });
   }
@@ -15224,45 +14655,45 @@
     const act = { ...cb, fontWeight: T.typography.weights.semibold, background: c.jerseyRed, color: c.white };
     const ina = { ...cb, fontWeight: T.typography.weights.regular, background: c.gray100, color: c.black };
     const row = { display: "flex", gap: T.spacing.md, flexWrap: "nowrap", overflowX: "auto" };
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.lg }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: "Full Game active" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: row, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: act, children: "Full Game" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { style: ina, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChipLockSvg, {}),
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.lg }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: "Full Game active" }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: row, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { style: act, children: "Full Game" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("button", { style: ina, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ChipLockSvg2, {}),
             " Condensed Game"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { style: ina, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChipLockSvg, {}),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("button", { style: ina, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ChipLockSvg2, {}),
             " Game Highlights"
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: "Condensed Game active" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: row, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: ina, children: "Full Game" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { style: act, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChipLockSvg, {}),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: "Condensed Game active" }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: row, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { style: ina, children: "Full Game" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("button", { style: act, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ChipLockSvg2, {}),
             " Condensed Game"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { style: ina, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChipLockSvg, {}),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("button", { style: ina, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ChipLockSvg2, {}),
             " Game Highlights"
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: "Game Highlights active" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: row, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: ina, children: "Full Game" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { style: ina, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChipLockSvg, {}),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: "Game Highlights active" }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: row, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { style: ina, children: "Full Game" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("button", { style: ina, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ChipLockSvg2, {}),
             " Condensed Game"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { style: act, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChipLockSvg, {}),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("button", { style: act, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ChipLockSvg2, {}),
             " Game Highlights"
           ] })
         ] })
@@ -15271,63 +14702,63 @@
   }
   function PTeamRowPreview() {
     const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.sm2, background: c.gray100, borderRadius: T.radii.card, padding: T.spacing.lg }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamRow, { name: "M. Kiryat Gat", score: "87", isWinner: true }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamRow, { name: "H. Haifa", score: "79", isWinner: false })
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.sm2, background: c.gray100, borderRadius: T.radii.card, padding: T.spacing.lg }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PTeamRow2, { name: "M. Kiryat Gat", score: "87", isWinner: true }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PTeamRow2, { name: "H. Haifa", score: "79", isWinner: false })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginTop: T.spacing.md, display: "flex", flexDirection: "column", gap: T.spacing.sm2, background: c.gray100, borderRadius: T.radii.card, padding: T.spacing.lg }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamRow, { name: "Maccabi Kiryat Gat", score: "89", isWinner: true, logoSize: 27, fontWeight: 400, gap: 8 }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamRow, { name: "Ironi Nahariya", score: "77", isWinner: false, logoSize: 27, fontWeight: 400, gap: 8 })
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { marginTop: T.spacing.md, display: "flex", flexDirection: "column", gap: T.spacing.sm2, background: c.gray100, borderRadius: T.radii.card, padding: T.spacing.lg }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PTeamRow2, { name: "Maccabi Kiryat Gat", score: "89", isWinner: true, logoSize: 27, fontWeight: 400, gap: 8 }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PTeamRow2, { name: "Ironi Nahariya", score: "77", isWinner: false, logoSize: 27, fontWeight: 400, gap: 8 })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.sm }, children: "Top: LiveGameCard style (28px logo, 500 weight, 12px gap) \xB7 Bottom: GameResultCard style (27px logo, 400 weight, 8px gap)" })
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("p", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.sm }, children: "Top: LiveGameCard style (28px logo, 500 weight, 12px gap) \xB7 Bottom: GameResultCard style (27px logo, 400 weight, 8px gap)" })
     ] });
   }
   function PAuthPagePreview({ tab, setTab }) {
     const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { width: 390, background: c.white, borderRadius: T.radii.lg, boxShadow: "0 4px 24px rgba(0,0,0,0.12)", overflow: "hidden" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBrandHero, { primaryColor: "#1A3B8A", logoSize: 80, height: 340 }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: `${T.spacing.md2}px ${T.spacing.md2}px 28px`, display: "flex", flexDirection: "column", gap: T.spacing.md2 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabs, { tabs: [{ label: "Sign In", value: "signin" }, { label: "Sign Up", value: "signup" }], active: tab, onSelect: setTab }),
-        tab === "signin" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontFamily: F, fontSize: T.typography.sizes.xl, fontWeight: T.typography.weights.bold, margin: 0, color: c.darkText }, children: "Sign In" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Enter password...", type: "password" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { children: "Sign in" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { textAlign: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLink, { children: "Forgot password?" }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTextDivider, {}),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PBtn, { variant: "social", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppleIcon, {}),
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { display: "flex", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { width: 390, background: c.white, borderRadius: T.radii.lg, boxShadow: "0 4px 24px rgba(0,0,0,0.12)", overflow: "hidden" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PBrandHero, { primaryColor: "#1A3B8A", logoSize: 80, height: 340 }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { padding: `${T.spacing.md2}px ${T.spacing.md2}px 28px`, display: "flex", flexDirection: "column", gap: T.spacing.md2 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PTabs, { tabs: [{ label: "Sign In", value: "signin" }, { label: "Sign Up", value: "signup" }], active: tab, onSelect: setTab }),
+        tab === "signin" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("h2", { style: { fontFamily: F, fontSize: T.typography.sizes.xl, fontWeight: T.typography.weights.bold, margin: 0, color: c.darkText }, children: "Sign In" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PInput, { placeholder: "Email Address...", type: "email" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PInput, { placeholder: "Enter password...", type: "password" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PBtn, { children: "Sign in" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { textAlign: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PLink, { children: "Forgot password?" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PTextDivider, {}),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(PBtn, { variant: "social", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(AppleIcon2, {}),
             " ",
             "Continue with Apple"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PBtn, { variant: "social", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GoogleIcon, {}),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(PBtn, { variant: "social", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(GoogleIcon2, {}),
             " ",
             "Continue with Google"
           ] })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontFamily: F, fontSize: T.typography.sizes.xl, fontWeight: T.typography.weights.bold, margin: 0, color: c.darkText }, children: "Create Account" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Full Name..." }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSelect, { placeholder: "Age..." }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Phone Number...", type: "tel" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Create password...", type: "password" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { children: "Create Account" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTextDivider, {}),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PBtn, { variant: "social", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppleIcon, {}),
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("h2", { style: { fontFamily: F, fontSize: T.typography.sizes.xl, fontWeight: T.typography.weights.bold, margin: 0, color: c.darkText }, children: "Create Account" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PInput, { placeholder: "Full Name..." }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PSelect, { placeholder: "Age..." }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PInput, { placeholder: "Phone Number...", type: "tel" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PInput, { placeholder: "Email Address...", type: "email" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PInput, { placeholder: "Create password...", type: "password" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PBtn, { children: "Create Account" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PTextDivider, {}),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(PBtn, { variant: "social", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(AppleIcon2, {}),
             " ",
             "Continue with Apple"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PBtn, { variant: "social", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GoogleIcon, {}),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(PBtn, { variant: "social", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(GoogleIcon2, {}),
             " ",
             "Continue with Google"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { style: { textAlign: "center", fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.gray400, margin: 0 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("p", { style: { textAlign: "center", fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.medium, color: c.gray400, margin: 0 }, children: [
             "Already have an account? ",
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLink, { variant: "accent", children: "Sign in" })
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PLink, { variant: "accent", children: "Sign in" })
           ] })
         ] })
       ] })
@@ -15335,79 +14766,30 @@
   }
   function POnboardingPreview({ selJerseys, toggleJ }) {
     const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", justifyContent: "center", marginTop: T.spacing.md }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { width: 390, background: c.white, borderRadius: T.radii.lg, boxShadow: "0 4px 24px rgba(0,0,0,0.12)", overflow: "hidden", position: "relative" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 16px 0", height: 64 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PixellotLogo, { size: 42 }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.medium, color: c.darkText }, children: "Cancel" })
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { display: "flex", justifyContent: "center", marginTop: T.spacing.md }, children: /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { width: 390, background: c.white, borderRadius: T.radii.lg, boxShadow: "0 4px 24px rgba(0,0,0,0.12)", overflow: "hidden", position: "relative" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 16px 0", height: 64 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PixellotLogo2, { size: 42 }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.sm, fontWeight: T.typography.weights.medium, color: c.darkText }, children: "Cancel" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "28px 16px 90px", display: "flex", flexDirection: "column", gap: T.spacing.xl }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { style: { fontFamily: F, fontSize: T.typography.sizes.xl, fontWeight: T.typography.weights.bold, margin: 0, color: c.darkText }, children: "Select the players you want to follow" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.medium, color: c.darkText, margin: "8px 0 0" }, children: "To personalize your experience, choose the player's jersey number you want to follow." })
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { padding: "28px 16px 90px", display: "flex", flexDirection: "column", gap: T.spacing.xl }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { textAlign: "center" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("h1", { style: { fontFamily: F, fontSize: T.typography.sizes.xl, fontWeight: T.typography.weights.bold, margin: 0, color: c.darkText }, children: "Select the players you want to follow" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.medium, color: c.darkText, margin: "8px 0 0" }, children: "To personalize your experience, choose the player's jersey number you want to follow." })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.lg2 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontFamily: F, fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.bold, margin: 0, color: c.darkText }, children: "Maccabi Kiryat Gat" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 18, padding: `0 ${T.spacing.xs}px` }, children: [1, 2, 3, 4].map((n) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PJersey, { number: n, selected: selJerseys.includes(n), onClick: () => toggleJ(n) }, n)) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PBtn, { variant: "muted", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.lg2 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("h2", { style: { fontFamily: F, fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.bold, margin: 0, color: c.darkText }, children: "Maccabi Kiryat Gat" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 18, padding: `0 ${T.spacing.xs}px` }, children: [1, 2, 3, 4].map((n) => /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PJersey2, { number: n, selected: selJerseys.includes(n), onClick: () => toggleJ(n) }, n)) }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(PBtn, { variant: "muted", children: [
             "See All ",
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronDown, { size: 16 })
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ChevronDown, { size: 16 })
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "absolute", bottom: 0, left: 0, right: 0, padding: "12px 32px 20px", background: c.white }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { children: "Finish" }) })
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { position: "absolute", bottom: 0, left: 0, right: 0, padding: "12px 32px 20px", background: c.white }, children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(PBtn, { children: "Finish" }) })
     ] }) });
   }
-  function POfflineBanner({ onRetry }) {
-    const c = useColors();
-    const errBg = c.errorBg;
-    const errBorder = c.errorBorder;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { role: "alert", style: { display: "flex", alignItems: "center", gap: T.spacing.md, background: errBg, borderRadius: T.radii.badge, padding: `${T.spacing.md}px ${T.spacing.lg}px`, border: `1px solid ${errBorder}` }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { "aria-hidden": "true", style: { width: 8, height: 8, borderRadius: "50%", background: c.errorRed, flexShrink: 0 } }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, fontWeight: T.typography.weights.semibold, color: c.darkText }, children: "You're offline" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.regular, color: c.gray500 }, children: "Check your connection and try again" })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: onRetry, "aria-label": "Retry connection", style: { background: "none", border: "none", fontFamily: F, fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.semibold, color: c.errorRed, cursor: "pointer", flexShrink: 0, borderRadius: T.radii.sm }, children: "Retry" })
-    ] });
-  }
-  function PSkeletonBlock({ width, height, borderRadius, style }) {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: {
-      width: width || "100%",
-      height: height || 16,
-      borderRadius: borderRadius || T.radii.sm,
-      background: `linear-gradient(90deg, ${c.gray100} 25%, ${c.gray50} 50%, ${c.gray100} 75%)`,
-      backgroundSize: "200% 100%",
-      animation: "shimmer 1.5s infinite ease-in-out",
-      ...style
-    } });
-  }
-  function PSkeletonCard() {
-    const c = useColors();
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.white, border: `1px solid ${c.gray100}`, borderRadius: T.radii.md, overflow: "hidden" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: "100%", height: 180, background: `linear-gradient(90deg, ${c.gray100} 25%, ${c.gray50} 50%, ${c.gray100} 75%)`, backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite ease-in-out" } }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: T.spacing.md, display: "flex", flexDirection: "column", gap: T.spacing.sm }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSkeletonBlock, { height: 20, style: { width: "80%" } }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSkeletonBlock, { height: 16, style: { width: "100%" } }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSkeletonBlock, { height: 16, style: { width: "90%" } })
-      ] })
-    ] });
-  }
-  function PSkeletonInput() {
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSkeletonBlock, { height: T.sizes.inputHeight, borderRadius: T.radii.sm });
-  }
-  function PLoadingSpinner({ size } = {}) {
-    const c = useColors();
-    const s = size || 24;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: {
-      width: s,
-      height: s,
-      border: `3px solid ${c.gray100}`,
-      borderTop: `3px solid ${c.primary}`,
-      borderRadius: "50%",
-      animation: "spin 1s linear infinite"
-    } });
-  }
+
+  // src/docs/vue-examples.ts
   var C = {};
   C.tokens = `// tokens/index.ts
 export const lightColors = {
@@ -17859,110 +17241,23 @@ withDefaults(props, {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+}`;
 
-@media (prefers-color-scheme: dark) {
-  .loading-spinner {
-    border-color: var(--color-gray-100-dark, #333333);
-    border-top-color: var(--color-primary-dark, #3B8BFF);
-  }
-}
-</style>`;
-  function NavBtn({ s, sec, setSec, isMobile, setNavOpen }) {
-    const c = useColors();
-    const [fo, setFo] = (0, import_react3.useState)(false);
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: () => {
-      if (!s.disabled) {
-        setSec(s.id);
-        if (isMobile) setNavOpen(false);
-      }
-    }, "aria-current": sec === s.id ? "page" : void 0, onFocus: () => !s.disabled && setFo(true), onBlur: () => setFo(false), style: { display: "block", width: "100%", padding: "7px 14px", border: "none", textAlign: "left", cursor: s.disabled ? "default" : "pointer", fontSize: T.typography.sizes.caption, fontWeight: sec === s.id ? 600 : s.disabled ? 700 : 400, background: sec === s.id ? `${c.primary}15` : "transparent", color: s.disabled ? c.gray400 : sec === s.id ? c.primary : c.gray500, borderLeft: sec === s.id ? `3px solid ${c.primary}` : "3px solid transparent", opacity: s.disabled ? 0.6 : 1, transition: "background 0.3s ease, color 0.3s ease", borderRadius: T.radii.sm, outline: fo ? `2px solid ${c.primary}` : "none", outlineOffset: -2 }, children: s.label });
-  }
-  function InputPlayground() {
-    const c = useColors();
-    const [inputType, setInputType] = (0, import_react3.useState)("email");
-    const [error, setError] = (0, import_react3.useState)(false);
-    const [errorMsg, setErrorMsg] = (0, import_react3.useState)("");
-    const [disabled, setDisabled] = (0, import_react3.useState)(false);
-    const [placeholder, setPlaceholder] = (0, import_react3.useState)("Email Address...");
-    const types = ["email", "password", "text", "tel"];
-    const presets = [
-      { label: "Default", fn: () => {
-        setError(false);
-        setErrorMsg("");
-        setDisabled(false);
-        setInputType("email");
-        setPlaceholder("Email Address...");
-      } },
-      { label: "Password", fn: () => {
-        setError(false);
-        setErrorMsg("");
-        setDisabled(false);
-        setInputType("password");
-        setPlaceholder("Enter password...");
-      } },
-      { label: "Error", fn: () => {
-        setError(true);
-        setErrorMsg("Please enter a valid email");
-        setDisabled(false);
-        setInputType("email");
-        setPlaceholder("Email Address...");
-      } },
-      { label: "Disabled", fn: () => {
-        setError(false);
-        setErrorMsg("");
-        setDisabled(true);
-        setInputType("email");
-        setPlaceholder("Email Address...");
-      } }
-    ];
-    const toggleStyle = (active) => ({ padding: "4px 10px", fontSize: T.typography.sizes.xxs, fontWeight: active ? 600 : 400, border: `1px solid ${active ? c.primary : c.gray200}`, background: active ? `${c.primary}15` : c.white, color: active ? c.primary : c.gray500, borderRadius: T.radii.sm, cursor: "pointer", fontFamily: F });
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginBottom: T.spacing.lg }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, color: c.gray400, textTransform: "uppercase", letterSpacing: 1, marginBottom: T.spacing.sm }, children: "Quick Presets" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", gap: T.spacing.sm, flexWrap: "wrap" }, children: presets.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: p.fn, style: { padding: `5px ${T.spacing.md}px`, fontSize: T.typography.sizes.caption, fontWeight: T.typography.weights.medium, border: `1px solid ${c.gray200}`, background: c.white, color: c.darkText, borderRadius: T.radii.chip, cursor: "pointer", fontFamily: F }, children: p.label }, p.label)) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginBottom: T.spacing.lg }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, color: c.gray400, textTransform: "uppercase", letterSpacing: 1, marginBottom: T.spacing.sm }, children: "Type" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", gap: T.spacing.xs }, children: types.map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: () => {
-          setInputType(t);
-          setPlaceholder(t === "password" ? "Enter password..." : t === "tel" ? "Phone Number..." : t === "email" ? "Email Address..." : "Full Name...");
-        }, style: toggleStyle(inputType === t), children: t }, t)) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginBottom: T.spacing.lg, display: "flex", gap: T.spacing.xl }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { display: "flex", alignItems: "center", gap: T.spacing.xs, fontSize: T.typography.sizes.caption, color: c.gray500, cursor: "pointer", fontFamily: F }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: error, onChange: (e) => {
-            setError(e.target.checked);
-            if (e.target.checked && !errorMsg) setErrorMsg("This field is required");
-            if (!e.target.checked) setErrorMsg("");
-          } }),
-          " Error"
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { display: "flex", alignItems: "center", gap: T.spacing.xs, fontSize: T.typography.sizes.caption, color: c.gray500, cursor: "pointer", fontFamily: F }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: disabled, onChange: (e) => setDisabled(e.target.checked) }),
-          " Disabled"
-        ] })
-      ] }),
-      error && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginBottom: T.spacing.lg }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, color: c.gray400, textTransform: "uppercase", letterSpacing: 1, marginBottom: T.spacing.sm }, children: "Error Message" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { value: errorMsg, onChange: (e) => setErrorMsg(e.target.value), style: { width: "100%", padding: "6px 10px", fontSize: T.typography.sizes.caption, border: `1px solid ${c.gray200}`, borderRadius: T.radii.sm, fontFamily: F, background: c.white, color: c.darkText, boxSizing: "border-box" } })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: T.spacing.lg, background: c.gray50, borderRadius: T.radii.badge, border: `1px solid ${c.gray100}` }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "Live Preview" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder, type: inputType, error, errorMsg: error ? errorMsg : void 0, disabled })
-      ] })
-    ] });
-  }
-  function PixellotDesignSystem() {
-    const [theme, setTheme] = (0, import_react3.useState)("light");
-    const [sec, setSec] = (0, import_react3.useState)("overview");
-    const [tab, setTab] = (0, import_react3.useState)("signin");
-    const [selJerseys, setSelJerseys] = (0, import_react3.useState)([]);
-    const [bmk, setBmk] = (0, import_react3.useState)(false);
-    const [navOpen, setNavOpen] = (0, import_react3.useState)(true);
-    const [searchQ, setSearchQ] = (0, import_react3.useState)("");
-    const [isMobile, setIsMobile] = (0, import_react3.useState)(false);
+  // src/showcase/App.tsx
+  var import_react17 = __toESM(require_react());
+  var import_jsx_runtime16 = __toESM(require_jsx_runtime());
+  var ThemeCtx3 = (0, import_react17.createContext)("light");
+  function App() {
+    const [theme, setTheme] = (0, import_react16.useState)("light");
+    const [sec, setSec] = (0, import_react16.useState)("overview");
+    const [tab, setTab] = (0, import_react16.useState)("signin");
+    const [selJerseys, setSelJerseys] = (0, import_react16.useState)([]);
+    const [bmk, setBmk] = (0, import_react16.useState)(false);
+    const [navOpen, setNavOpen] = (0, import_react16.useState)(true);
+    const [searchQ, setSearchQ] = (0, import_react16.useState)("");
+    const [isMobile, setIsMobile] = (0, import_react16.useState)(false);
     const toggleJ = (n) => setSelJerseys(selJerseys.includes(n) ? selJerseys.filter((x) => x !== n) : [...selJerseys, n]);
-    (0, import_react3.useEffect)(() => {
+    (0, import_react16.useEffect)(() => {
       const checkWidth = () => {
         const mobile = window.innerWidth < T.breakpoints.mobile;
         setIsMobile(mobile);
@@ -17973,14 +17268,14 @@ withDefaults(props, {
       window.addEventListener("resize", checkWidth);
       return () => window.removeEventListener("resize", checkWidth);
     }, []);
-    (0, import_react3.useEffect)(() => {
-      const bg = theme === "dark" ? DARK.white : LIGHT.white;
+    (0, import_react16.useEffect)(() => {
+      const bg = theme === "dark" ? DARK.white : LIGHT2.white;
       document.documentElement.style.background = bg;
       document.body.style.background = bg;
       document.documentElement.style.transition = "background 0.3s ease";
       document.body.style.transition = "background 0.3s ease";
     }, [theme]);
-    (0, import_react3.useEffect)(() => {
+    (0, import_react16.useEffect)(() => {
       if (!document.getElementById("ds-shimmer-style")) {
         const style = document.createElement("style");
         style.id = "ds-shimmer-style";
@@ -17989,7 +17284,6 @@ withDefaults(props, {
       }
     }, []);
     const nav = [
-      { id: "overview", label: "\u{1F50D} Overview" },
       { id: "tokens", label: "\u{1F3A8} Design Tokens" },
       { id: "divider-inputs", label: "\u2500\u2500 Inputs \u2500\u2500", disabled: true },
       { id: "input", label: "AppInput" },
@@ -18069,50 +17363,50 @@ withDefaults(props, {
     ];
     const renderContent = () => {
       const c = dc;
-      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", minHeight: "100vh", fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif' }, children: [
-        isMobile && !navOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", minHeight: "100vh", fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif' }, children: [
+        isMobile && !navOpen && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
           "button",
           {
             onClick: () => setNavOpen(true),
             "aria-label": "Open navigation",
             style: { position: "fixed", top: 12, left: 12, zIndex: 1001, width: 36, height: 36, borderRadius: T.radii.thumb, background: c.white, border: `1px solid ${c.gray200}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.1)", ...true ? { outline: `2px solid ${c.primary}`, outlineOffset: 2 } : {} },
-            children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Menu, { size: 20, color: c.gray500 })
+            children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Menu, { size: 20, color: c.gray500 })
           }
         ),
-        isMobile && navOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { onClick: () => setNavOpen(false), style: { position: "fixed", inset: 0, background: c.overlay, zIndex: 999 } }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("nav", { "aria-label": "Design system sections", style: { width: 220, background: c.white, borderRight: `1px solid ${c.gray200}`, padding: `${T.spacing.lg}px 0`, flexShrink: 0, position: isMobile ? "fixed" : "sticky", top: 0, left: 0, height: "100vh", overflowY: "auto", transition: "background 0.3s ease, transform 0.25s ease", zIndex: isMobile ? 1e3 : "auto", transform: isMobile && !navOpen ? "translateX(-100%)" : "translateX(0)", boxShadow: isMobile && navOpen ? "4px 0 16px rgba(0,0,0,0.15)" : "none" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: `0 ${T.spacing.md2}px ${T.spacing.md2}px`, borderBottom: `1px solid ${c.gray100}`, marginBottom: T.spacing.xs2, display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.sm }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PixellotLogo, { size: 30 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.bold, color: c.darkText, transition: "color 0.3s ease" }, children: "Pixellot" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.mini, color: c.gray500 }, children: "Design System v2" })
+        isMobile && navOpen && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { onClick: () => setNavOpen(false), style: { position: "fixed", inset: 0, background: c.overlay, zIndex: 999 } }),
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("nav", { "aria-label": "Design system sections", style: { width: 220, background: c.white, borderRight: `1px solid ${c.gray200}`, padding: `${T.spacing.lg}px 0`, flexShrink: 0, position: isMobile ? "fixed" : "sticky", top: 0, left: 0, height: "100vh", overflowY: "auto", transition: "background 0.3s ease, transform 0.25s ease", zIndex: isMobile ? 1e3 : "auto", transform: isMobile && !navOpen ? "translateX(-100%)" : "translateX(0)", boxShadow: isMobile && navOpen ? "4px 0 16px rgba(0,0,0,0.15)" : "none" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { padding: `0 ${T.spacing.md2}px ${T.spacing.md2}px`, borderBottom: `1px solid ${c.gray100}`, marginBottom: T.spacing.xs2, display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.sm }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PixellotLogo, { size: 30 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.bold, color: c.darkText, transition: "color 0.3s ease" }, children: "Pixellot" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.mini, color: c.gray500 }, children: "Design System v2" })
               ] })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.xs }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.xs }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
                 "button",
                 {
                   onClick: () => setTheme((t) => t === "light" ? "dark" : "light"),
                   "aria-label": theme === "light" ? "Switch to dark mode" : "Switch to light mode",
                   style: { background: "none", border: "none", cursor: "pointer", padding: T.spacing.xs, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: T.radii.sm },
-                  children: theme === "light" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Moon, { size: 18, color: c.gray400 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Sun, { size: 18, color: c.gray400 })
+                  children: theme === "light" ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Moon, { size: 18, color: c.gray400 }) : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Sun, { size: 18, color: c.gray400 })
                 }
               ),
-              isMobile && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              isMobile && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
                 "button",
                 {
                   onClick: () => setNavOpen(false),
                   "aria-label": "Close navigation",
                   style: { background: "none", border: "none", cursor: "pointer", padding: T.spacing.xs, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: T.radii.sm },
-                  children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 18, color: c.gray400 })
+                  children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(X, { size: 18, color: c.gray400 })
                 }
               )
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { padding: "6px 10px" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { position: "relative" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, { size: 14, color: c.gray400, style: { position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" } }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { padding: "6px 10px" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { position: "relative" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Search, { size: 14, color: c.gray400, style: { position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" } }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
               "input",
               {
                 type: "text",
@@ -18142,26 +17436,26 @@ withDefaults(props, {
             if (!searchQ.trim()) return true;
             if (s.disabled) return false;
             return s.label.toLowerCase().includes(searchQ.toLowerCase());
-          }).map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(NavBtn, { s, sec, setSec, isMobile, setNavOpen }, s.id))
+          }).map((s) => /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(NavBtn, { s, sec, setSec, isMobile, setNavOpen }, s.id))
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { style: { flex: 1, padding: isMobile ? "16px 16px 16px 16px" : "24px 32px", maxWidth: 900, overflowY: "auto", paddingTop: isMobile ? 56 : void 0 }, children: [
-          sec === "overview" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { style: { fontSize: T.typography.sizes.h2, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.xs }, children: "Pixellot Design System v2" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { color: c.gray500, fontSize: T.typography.sizes.xs, marginTop: T.spacing.xs, lineHeight: 1.6 }, children: "Complete component library for the Pixellot sports platform \u2014 auth, onboarding, jersey selection, game details, team shop, and player profiles." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: T.spacing.sm2, marginTop: T.spacing.lg }, children: [{ n: "44", l: "Components" }, { n: "72", l: "Design Tokens" }, { n: "6", l: "Page Views" }].map((i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: c.white, border: `1px solid ${c.gray100}`, borderRadius: T.radii.badge, padding: `${T.spacing.md2}px ${T.spacing.lg}px`, textAlign: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxl, fontWeight: T.typography.weights.extraBold, color: c.primary }, children: i.n }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray500, marginTop: T.spacing.xxs }, children: i.l })
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("main", { style: { flex: 1, padding: isMobile ? "16px 16px 16px 16px" : "24px 32px", maxWidth: 900, overflowY: "auto", paddingTop: isMobile ? 56 : void 0 }, children: [
+          sec === "overview" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h1", { style: { fontSize: T.typography.sizes.h2, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.xs }, children: "Pixellot Design System v2" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { color: c.gray500, fontSize: T.typography.sizes.xs, marginTop: T.spacing.xs, lineHeight: 1.6 }, children: "Complete component library for the Pixellot sports platform \u2014 auth, onboarding, jersey selection, game details, team shop, and player profiles." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: T.spacing.sm2, marginTop: T.spacing.lg }, children: [{ n: "44", l: "Components" }, { n: "72", l: "Design Tokens" }, { n: "6", l: "Page Views" }].map((i) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { background: c.white, border: `1px solid ${c.gray100}`, borderRadius: T.radii.badge, padding: `${T.spacing.md2}px ${T.spacing.lg}px`, textAlign: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxl, fontWeight: T.typography.weights.extraBold, color: c.primary }, children: i.n }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray500, marginTop: T.spacing.xxs }, children: i.l })
             ] }, i.l)) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { height: T.spacing.xxl } }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Project Structure", codeTitle: "File Tree", code: C.projectStructure, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.xs2, fontSize: T.typography.sizes.caption }, children: ["AppInput", "AppSelect", "AppButton", "AppBadge", "AppTabs", "AppDivider", "AppLink", "TeamRow", "LockSvg", "BackButton", "MainTopBar", "SectionHeader", "PaywallOverlay", "LiveGameCard", "GameResultCard", "ScoreCard", "ProductCard", "VideoThumbnail", "VideoTypeChips", "VideoActionBar", "ShareCurtain", "TeamStatsBar", "GameLeaders", "PlayerStatsTable", "StatsGrid", "SeasonStatsRow", "PaymentModal", "UpgradeBanner", "InfoAlert", "JerseyItem", "JerseyGrid"].map((c_item) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "6px 10px", background: c.gray50, borderRadius: T.radii.xs, fontFamily: "monospace", color: c.gray500 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { height: T.spacing.xxl } }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Project Structure", codeTitle: "File Tree", code: C.projectStructure, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.xs2, fontSize: T.typography.sizes.caption }, children: ["AppInput", "AppSelect", "AppButton", "AppBadge", "AppTabs", "AppDivider", "AppLink", "TeamRow", "LockSvg", "BackButton", "MainTopBar", "SectionHeader", "PaywallOverlay", "LiveGameCard", "GameResultCard", "ScoreCard", "ProductCard", "VideoThumbnail", "VideoTypeChips", "VideoActionBar", "ShareCurtain", "TeamStatsBar", "GameLeaders", "PlayerStatsTable", "StatsGrid", "SeasonStatsRow", "PaymentModal", "UpgradeBanner", "InfoAlert", "JerseyItem", "JerseyGrid"].map((c_item) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { padding: "6px 10px", background: c.gray50, borderRadius: T.radii.xs, fontFamily: "monospace", color: c.gray500 }, children: [
               "<",
               c_item,
               " />"
             ] }, c_item)) }) })
           ] }),
-          sec === "tokens" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Design Tokens" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Colors", codeTitle: "tokens/index.ts", code: C.tokens, children: [
+          sec === "tokens" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Design Tokens" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Colors", codeTitle: "tokens/index.ts", code: C.tokens, children: [
               { label: "Primary", keys: ["primary", "primaryHover", "primaryActive"] },
               { label: "Neutrals", keys: ["white", "black", "darkText"] },
               { label: "Grays", keys: ["gray50", "gray100", "gray200", "gray300", "gray400", "gray500"] },
@@ -18175,187 +17469,187 @@ withDefaults(props, {
               { label: "Links & Info", keys: ["linkBlue", "infoBgPurple"] },
               { label: "Disabled", keys: ["disabledTextOnDark"] }
             ].map((group) => {
-              const palette = theme === "dark" ? DARK : LIGHT;
-              return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginBottom: T.spacing.lg }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, color: c.gray400, textTransform: "uppercase", letterSpacing: 1, marginBottom: T.spacing.xs }, children: group.label }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }, children: group.keys.map((k) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Swatch, { name: k, hex: palette[k] }, k)) })
+              const palette = theme === "dark" ? DARK : LIGHT2;
+              return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { marginBottom: T.spacing.lg }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, fontWeight: T.typography.weights.bold, color: c.gray400, textTransform: "uppercase", letterSpacing: 1, marginBottom: T.spacing.xs }, children: group.label }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }, children: group.keys.map((k) => /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Swatch, { name: k, hex: palette[k] }, k)) })
               ] }, group.label);
             }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Typography", desc: "Red Hat Display \u2014 Regular 400, Medium 500, Semibold 600, Bold 700", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTypographyPreview, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Spacing", desc: "Consistent spacing scale consumed by all components", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSpacingPreview, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Sizes", desc: "Component dimensions \u2014 inputHeight, buttonSm/Md/Lg, tabHeight, chipHeight, etc.", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSizesPreview, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Radii", desc: "Border radius tokens \u2014 sm, md, lg, xl, badge, chip, pill", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PRadiiPreview, {}) })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Typography", desc: "Red Hat Display \u2014 Regular 400, Medium 500, Semibold 600, Bold 700", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTypographyPreview, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Spacing", desc: "Consistent spacing scale consumed by all components", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSpacingPreview, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Sizes", desc: "Component dimensions \u2014 inputHeight, buttonSm/Md/Lg, tabHeight, chipHeight, etc.", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSizesPreview, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Radii", desc: "Border radius tokens \u2014 sm, md, lg, xl, badge, chip, pill", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PRadiiPreview, {}) })
           ] }),
-          sec === "input" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppInput" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Text input with password toggle \u2014 supports default, hover, focus, filled, error, disabled, and readOnly states" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Variants", code: C.appInput, codeTitle: "AppInput.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Enter password...", type: "password" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Full Name..." }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Phone Number...", type: "tel" })
+          sec === "input" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppInput" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Text input with password toggle \u2014 supports default, hover, focus, filled, error, disabled, and readOnly states" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Variants", code: C.appInput, codeTitle: "AppInput.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Email Address...", type: "email" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Enter password...", type: "password" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Full Name..." }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Phone Number...", type: "tel" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "States \u2014 default / hover / focus / filled / disabled", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "default" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "States \u2014 default / hover / focus / filled / disabled", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "default" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Email Address...", type: "email" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "hover" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email", _forceState: "hover" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "hover" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Email Address...", type: "email", _forceState: "hover" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "focus \u2014 blue border" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email", _forceState: "focus" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "focus \u2014 blue border" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Email Address...", type: "email", _forceState: "focus" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "filled" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email", _forceState: "filled" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "filled" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Email Address...", type: "email", _forceState: "filled" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "disabled" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email", disabled: true })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "disabled" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Email Address...", type: "email", disabled: true })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "readOnly" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "user@example.com", _forceState: "readOnly" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "readOnly" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "user@example.com", _forceState: "readOnly" })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Error States", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error \u2014 red border" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email", error: true })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Error States", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error \u2014 red border" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Email Address...", type: "email", error: true })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error + message" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email", error: true, errorMsg: "Please enter a valid email address" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error + message" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Email Address...", type: "email", error: true, errorMsg: "Please enter a valid email address" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error + hover" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email", error: true, _forceState: "hover" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error + hover" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Email Address...", type: "email", error: true, _forceState: "hover" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error + focus" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email", error: true, errorMsg: "Please enter a valid email address", _forceState: "focus" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error + focus" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Email Address...", type: "email", error: true, errorMsg: "Please enter a valid email address", _forceState: "focus" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error + filled" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Email Address...", type: "email", error: true, errorMsg: "Please enter a valid email address", _forceState: "filled" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error + filled" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Email Address...", type: "email", error: true, errorMsg: "Please enter a valid email address", _forceState: "filled" })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Password + States", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "default" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Enter password...", type: "password" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Password + States", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "default" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Enter password...", type: "password" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error + message" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Enter password...", type: "password", error: true, errorMsg: "Password must be at least 8 characters" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error + message" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Enter password...", type: "password", error: true, errorMsg: "Password must be at least 8 characters" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "disabled" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInput, { placeholder: "Enter password...", type: "password", disabled: true })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "disabled" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInput, { placeholder: "Enter password...", type: "password", disabled: true })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Interactive Playground", desc: "Toggle props to see live state changes", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InputPlayground, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "modelValue: string \u2014 v-model binding" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "placeholder: string \u2014 placeholder text" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'type: string \u2014 "text" | "email" | "tel" | "password"' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "error: boolean \u2014 toggles red error border" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "errorMsg: string \u2014 error message below input" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "disabled: boolean \u2014 disables input and toggle" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Interactive Playground", desc: "Toggle props to see live state changes", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(InputPlayground, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "modelValue: string \u2014 v-model binding" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "placeholder: string \u2014 placeholder text" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'type: string \u2014 "text" | "email" | "tel" | "password"' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "error: boolean \u2014 toggles red error border" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "errorMsg: string \u2014 error message below input" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "disabled: boolean \u2014 disables input and toggle" })
             ] }) })
           ] }),
-          sec === "select" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppSelect" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Dropdown select \u2014 supports default, hover, focus, error, and disabled states" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Variants", code: C.appSelect, codeTitle: "AppSelect.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "default" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSelect, { placeholder: "Age..." })
+          sec === "select" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppSelect" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Dropdown select \u2014 supports default, hover, focus, error, and disabled states" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Variants", code: C.appSelect, codeTitle: "AppSelect.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "default" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSelect, { placeholder: "Age..." })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "hover" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSelect, { placeholder: "Age...", _forceState: "hover" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "hover" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSelect, { placeholder: "Age...", _forceState: "hover" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "focus" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSelect, { placeholder: "Age...", _forceState: "focus" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "focus" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSelect, { placeholder: "Age...", _forceState: "focus" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSelect, { placeholder: "Age...", error: true, errorMsg: "Please select your age" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "error" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSelect, { placeholder: "Age...", error: true, errorMsg: "Please select your age" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "disabled" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSelect, { placeholder: "Age...", disabled: true })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: "disabled" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSelect, { placeholder: "Age...", disabled: true })
               ] })
             ] }) })
           ] }),
-          sec === "button" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppButton" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "7 variants \xD7 3 sizes \u2014 unified button component" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "All Variants \u2014 md (default)", code: C.appButton, codeTitle: "AppButton.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "primary" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { children: "Sign in" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "premium" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "premium", children: "Buy Now" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "social" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "social", leadingIcon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppleIcon, {}), children: "Continue with Apple" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "social", leadingIcon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GoogleIcon, {}), children: "Continue with Google" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "muted" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "muted", trailingIcon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronDown, { size: 16 }), children: "See All" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "ghost" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "ghost", children: "Ghost" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "link" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "link", fullWidth: false, children: "See all >" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "danger" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "danger", fullWidth: false, children: "Log Out" })
+          sec === "button" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppButton" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "7 variants \xD7 3 sizes \u2014 unified button component" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "All Variants \u2014 md (default)", code: C.appButton, codeTitle: "AppButton.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "primary" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { children: "Sign in" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "premium" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "premium", children: "Buy Now" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "social" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "social", leadingIcon: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(AppleIcon, {}), children: "Continue with Apple" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "social", leadingIcon: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(GoogleIcon, {}), children: "Continue with Google" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "muted" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "muted", trailingIcon: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ChevronDown, { size: 16 }), children: "See All" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "ghost" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "ghost", children: "Ghost" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "link" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "link", fullWidth: false, children: "See all >" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "danger" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "danger", fullWidth: false, children: "Log Out" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "States \u2014 default / hover / pressed / disabled", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.lg }, children: ["primary", "premium", "social", "muted", "ghost", "link", "danger"].map((v) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: v }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: T.spacing.xs2 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "States \u2014 default / hover / pressed / disabled", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.lg }, children: ["primary", "premium", "social", "muted", "ghost", "link", "danger"].map((v) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: v }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: T.spacing.xs2 }, children: [
                 { label: "default", state: "default" },
                 { label: "hover", state: "hover" },
                 { label: "pressed", state: "active" },
                 { label: "disabled", state: "disabled" }
-              ].map(({ label, state }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: v, size: "sm", fullWidth: true, _forceState: state, disabled: state === "disabled", children: v === "danger" ? "Log Out" : v === "link" ? "Link" : v === "ghost" ? "Ghost" : v === "social" ? "Apple" : v === "muted" ? "See All" : v === "premium" ? "Buy" : "Sign in" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: label })
+              ].map(({ label, state }) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: v, size: "sm", fullWidth: true, _forceState: state, disabled: state === "disabled", children: v === "danger" ? "Log Out" : v === "link" ? "Link" : v === "ghost" ? "Ghost" : v === "social" ? "Apple" : v === "muted" ? "See All" : v === "premium" ? "Buy" : "Sign in" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: label })
               ] }, label)) })
             ] }, v)) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Size Comparison \u2014 sm / md / lg", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md2 }, children: ["primary", "premium", "social", "muted"].map((v) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: v }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.sm, alignItems: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: v, size: "sm", fullWidth: false, children: v === "social" ? "Apple" : v === "muted" ? "See All" : "Small" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: v, size: "md", fullWidth: false, children: v === "social" ? "Apple" : v === "muted" ? "See All" : "Medium" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: v, size: "lg", fullWidth: false, children: v === "social" ? "Apple" : v === "muted" ? "See All" : "Large" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Size Comparison \u2014 sm / md / lg", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md2 }, children: ["primary", "premium", "social", "muted"].map((v) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: v }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.sm, alignItems: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: v, size: "sm", fullWidth: false, children: v === "social" ? "Apple" : v === "muted" ? "See All" : "Small" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: v, size: "md", fullWidth: false, children: v === "social" ? "Apple" : v === "muted" ? "See All" : "Medium" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: v, size: "lg", fullWidth: false, children: v === "social" ? "Apple" : v === "muted" ? "See All" : "Large" })
               ] })
             ] }, v)) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "With Icons", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "leading icon" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "social", leadingIcon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppleIcon, {}), children: "Continue with Apple" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "trailing icon" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "muted", trailingIcon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronDown, { size: 16 }), children: "See All" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "icon only" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { "aria-label": "Close", style: { width: 32, height: 32, minWidth: 32, borderRadius: "50%", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 16 }) }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { "aria-label": "Play", style: { width: 32, height: 32, minWidth: 32, borderRadius: "50%", background: "#f3f4f6", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { size: 16, color: "#6b7280" }) }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { "aria-label": "Check", style: { width: 32, height: 32, minWidth: 32, borderRadius: "50%", background: "#3b82f6", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 16, color: "#ffffff" }) })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "With Icons", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "leading icon" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "social", leadingIcon: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(AppleIcon, {}), children: "Continue with Apple" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "trailing icon" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "muted", trailingIcon: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ChevronDown, { size: 16 }), children: "See All" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "icon only" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { "aria-label": "Close", style: { width: 32, height: 32, minWidth: 32, borderRadius: "50%", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(X, { size: 16 }) }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { "aria-label": "Play", style: { width: 32, height: 32, minWidth: 32, borderRadius: "50%", background: "#f3f4f6", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Play, { size: 16, color: "#6b7280" }) }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { "aria-label": "Check", style: { width: 32, height: 32, minWidth: 32, borderRadius: "50%", background: "#3b82f6", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Check, { size: 16, color: "#ffffff" }) })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Width Modes", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "fullWidth (default)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { children: "Full Width Button" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "auto width (fullWidth=false)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { fullWidth: false, children: "Auto Width" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Width Modes", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "fullWidth (default)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { children: "Full Width Button" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "auto width (fullWidth=false)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { fullWidth: false, children: "Auto Width" })
             ] }) })
           ] }),
-          sec === "icons" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Icons" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "18 Lucide icons + 3 tab bar SVGs + 3 custom SVGs + 6 share channel SVGs + 2 placeholder components" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Lucide Icons (lucide-react)", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: T.spacing.md }, children: [
+          sec === "icons" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Icons" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "18 Lucide icons + 3 tab bar SVGs + 3 custom SVGs + 6 share channel SVGs + 2 placeholder components" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Lucide Icons (lucide-react)", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: T.spacing.md }, children: [
               { Icon: Eye, name: "Eye" },
               { Icon: EyeOff, name: "EyeOff" },
               { Icon: ChevronDown, name: "ChevronDown" },
@@ -18374,1002 +17668,1002 @@ withDefaults(props, {
               { Icon: Moon, name: "Moon" },
               { Icon: Menu, name: "Menu" },
               { Icon: Share2, name: "Share2" }
-            ].map(({ Icon: Icon2, name }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2, padding: T.spacing.sm }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 40, height: 40, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon2, { size: 20, color: c.darkText }) }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, textAlign: "center", lineHeight: 1.2 }, children: name })
+            ].map(({ Icon: Icon2, name }) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2, padding: T.spacing.sm }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { width: 40, height: 40, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Icon2, { size: 20, color: c.darkText }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, textAlign: "center", lineHeight: 1.2 }, children: name })
             ] }, name)) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Custom SVG Icons", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: T.spacing.md }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 48, height: 48, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GoogleIcon, {}) }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "GoogleIcon" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "Social auth" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Custom SVG Icons", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: T.spacing.md }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { width: 48, height: 48, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(GoogleIcon, {}) }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "GoogleIcon" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "Social auth" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 48, height: 48, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppleIcon, {}) }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "AppleIcon" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "Social auth" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { width: 48, height: 48, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(AppleIcon, {}) }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "AppleIcon" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "Social auth" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 48, height: 48, borderRadius: T.radii.thumb, background: c.premiumDark, border: `${T.strokes.bold}px solid ${c.premiumYellow}`, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockSvg, { size: 16 }) }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "LockSvg" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "Paywall / badges" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { width: 48, height: 48, borderRadius: T.radii.thumb, background: c.premiumDark, border: `${T.strokes.bold}px solid ${c.premiumYellow}`, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(LockSvg, { size: 16 }) }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "LockSvg" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "Paywall / badges" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 48, height: 48, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChipLockSvg, {}) }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "ChipLockSvg" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "Chip prefix" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { width: 48, height: 48, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ChipLockSvg, {}) }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "ChipLockSvg" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "Chip prefix" })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "BottomTabBar Icons", desc: "3 custom SVGs + Bookmark (lucide). Traced from Sales prototype. Active state fills solid, inactive is outline-only.", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: T.spacing.md }, children: ["games", "saved", "following", "shop"].map((icon) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 40, height: 40, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(_TabIcon, { icon, active: false, color: c.gray400 }) }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 40, height: 40, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(_TabIcon, { icon, active: true, color: c.darkText }) })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "BottomTabBar Icons", desc: "3 custom SVGs + Bookmark (lucide). Traced from Sales prototype. Active state fills solid, inactive is outline-only.", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: T.spacing.md }, children: ["games", "saved", "following", "shop"].map((icon) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { width: 40, height: 40, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(_TabIcon, { icon, active: false, color: c.gray400 }) }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { width: 40, height: 40, borderRadius: T.radii.thumb, background: c.gray50, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(_TabIcon, { icon, active: true, color: c.darkText }) })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: icon === "saved" ? "Bookmark (lucide)" : icon.charAt(0).toUpperCase() + icon.slice(1) }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "BottomTabBar" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: icon === "saved" ? "Bookmark (lucide)" : icon.charAt(0).toUpperCase() + icon.slice(1) }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "BottomTabBar" })
             ] }, icon)) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "LockSvg Sizes", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", gap: T.spacing.lg2, alignItems: "flex-end" }, children: [{ s: 8, label: "8 \u2014 chip" }, { s: 11, label: "11 \u2014 thumbnail" }, { s: 12, label: "12 \u2014 banner" }, { s: 16, label: "16 \u2014 explorer" }, { s: 22, label: "22 \u2014 paywall" }].map(({ s, label }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 40, height: 40, borderRadius: T.radii.thumb, background: c.premiumDark, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockSvg, { size: s }) }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400, textAlign: "center", lineHeight: 1.2 }, children: label })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "LockSvg Sizes", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "flex", gap: T.spacing.lg2, alignItems: "flex-end" }, children: [{ s: 8, label: "8 \u2014 chip" }, { s: 11, label: "11 \u2014 thumbnail" }, { s: 12, label: "12 \u2014 banner" }, { s: 16, label: "16 \u2014 explorer" }, { s: 22, label: "22 \u2014 paywall" }].map(({ s, label }) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { width: 40, height: 40, borderRadius: T.radii.thumb, background: c.premiumDark, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(LockSvg, { size: s }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400, textAlign: "center", lineHeight: 1.2 }, children: label })
             ] }, s)) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Share Channel Icons", desc: "6 branded social icons used in ShareCurtain", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: T.spacing.lg }, children: SHARE_CHANNELS.map((ch) => {
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Share Channel Icons", desc: "6 branded social icons used in ShareCurtain", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: T.spacing.lg }, children: SHARE_CHANNELS.map((ch) => {
               const componentName = ch.label === "Copy Link" ? "CopyLinkIcon" : ch.label === "X" ? "XLogoIcon" : `${ch.label}Icon`;
-              return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 48, height: 48, borderRadius: "50%", background: ch.gradient || ch.color, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ch.icon, {}) }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: componentName }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "ShareCurtain" })
+              return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm, padding: T.spacing.md }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { width: 48, height: 48, borderRadius: "50%", background: ch.gradient || ch.color, display: "flex", alignItems: "center", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ch.icon, {}) }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: componentName }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "ShareCurtain" })
               ] }, ch.label);
             }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Usage in Components", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Usage in Components", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<Eye /> <EyeOff />",
                 " \u2192 AppInput password toggle"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<ChevronDown />",
                 " \u2192 AppSelect, See All buttons"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<Copy />",
                 " \u2192 Code snippet copy button"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<Check />",
                 " \u2192 PaymentModal, Jersey selected"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<Search />",
                 " \u2192 MainTopBar search"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<Play />",
                 " \u2192 VideoThumbnail, GameResultCard"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<X />",
                 " \u2192 Modal close"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<ArrowLeft />",
                 " \u2192 BackButton navigation"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<GoogleIcon />",
                 " \u2192 Social auth button"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<AppleIcon />",
                 " \u2192 Social auth button"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<LockSvg size={8-22} />",
                 " \u2192 Paywalls, thumbnails, banner, chips"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<Download />",
                 " \u2192 VideoActionBar download"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<Upload />",
                 " \u2192 VideoActionBar share (opens ShareCurtain)"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<Bookmark />",
                 ' \u2192 VideoActionBar bookmark, BottomTabBar "Saved" tab'
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<CopyLinkIcon />",
                 " \u2192 ShareCurtain copy link"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<FacebookIcon />",
                 " \u2192 ShareCurtain"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<XLogoIcon />",
                 " \u2192 ShareCurtain"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<WhatsAppIcon />",
                 " \u2192 ShareCurtain"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<TikTokIcon />",
                 " \u2192 ShareCurtain"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<InstagramIcon />",
                 " \u2192 ShareCurtain"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<Bell />",
                 " \u2192 TopBar notification bell"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "<User />",
                 " \u2192 ProfileSidebar fallback avatar"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "_TabIcon(games)",
                 " \u2192 BottomTabBar trophy (custom SVG)"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "_TabIcon(following)",
                 " \u2192 BottomTabBar heart (custom SVG)"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "_TabIcon(shop)",
                 " \u2192 BottomTabBar bag with smiley (custom SVG)"
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Placeholder Components", desc: "Deterministic placeholders for images that need real assets in production", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg2, alignItems: "flex-end", flexWrap: "wrap" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Maccabi" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "PTeamLogo" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: 'name="Maccabi"' })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Placeholder Components", desc: "Deterministic placeholders for images that need real assets in production", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg2, alignItems: "flex-end", flexWrap: "wrap" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Maccabi" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "PTeamLogo" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: 'name="Maccabi"' })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Ironi" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "PTeamLogo" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: 'name="Ironi"' })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Ironi" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "PTeamLogo" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: 'name="Ironi"' })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Hapoel" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "PTeamLogo" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: 'name="Hapoel"' })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Hapoel" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "PTeamLogo" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: 'name="Hapoel"' })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerPhoto, { size: 48, name: "B. Rogers" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "PPlayerPhoto" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "48px" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerPhoto2, { size: 48, name: "B. Rogers" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "PPlayerPhoto" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "48px" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerPhoto, { size: 36, name: "J. Davis" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "PPlayerPhoto" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "36px" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerPhoto2, { size: 36, name: "J. Davis" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.mini, color: c.gray400 }, children: "PPlayerPhoto" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "36px" })
               ] })
             ] }) })
           ] }),
-          sec === "sociallinks" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "SocialLinks", desc: "Monochrome social media icons \u2014 X, Facebook, Instagram, Website. Used in team profile.", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", justifyContent: "center", padding: 16 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSocialLinks, {}) }) }),
-          sec === "tabs" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppTabs" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "2 variants \u2014 pill, underline (with configurable accentColor per team)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "pill (default)", code: C.appTabs, codeTitle: "AppTabs.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabs, { tabs: [{ label: "Sign In", value: "signin" }, { label: "Sign Up", value: "signup" }], active: tab, onSelect: setTab }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginTop: T.spacing.sm2, fontSize: T.typography.sizes.caption, color: c.gray400 }, children: [
+          sec === "sociallinks" && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "SocialLinks", desc: "Monochrome social media icons \u2014 X, Facebook, Instagram, Website. Used in team profile.", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "flex", justifyContent: "center", padding: 16 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSocialLinks, {}) }) }),
+          sec === "tabs" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppTabs" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "2 variants \u2014 pill, underline (with configurable accentColor per team)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "pill (default)", code: C.appTabs, codeTitle: "AppTabs.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTabs, { tabs: [{ label: "Sign In", value: "signin" }, { label: "Sign Up", value: "signup" }], active: tab, onSelect: setTab }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { marginTop: T.spacing.sm2, fontSize: T.typography.sizes.caption, color: c.gray400 }, children: [
                 "Active: ",
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm }, children: tab })
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm }, children: tab })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "pill \u2014 Interactive States", desc: "Hover and pressed states on inactive tabs", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md, maxWidth: 398 }, children: ["default", "hover", "active"].map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "pill \u2014 Interactive States", desc: "Hover and pressed states on inactive tabs", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md, maxWidth: 398 }, children: ["default", "hover", "active"].map((s) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: [
                 "Inactive tab \u2192 ",
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: s })
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("strong", { children: s })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabs, { tabs: [{ label: "Sign In", value: "signin" }, { label: "Sign Up", value: "signup" }], active: "signin", onSelect: () => {
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTabs, { tabs: [{ label: "Sign In", value: "signin" }, { label: "Sign Up", value: "signup" }], active: "signin", onSelect: () => {
               }, _forceState: s })
             ] }, s)) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "underline (default \u2014 team red)", desc: "accentColor defaults to #EF4444. Pass any team color.", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabs, { variant: "underline", tabs: [{ label: "Schedule", value: "schedule" }, { label: "Results", value: "results" }, { label: "Standings", value: "standings" }], active: tab, onSelect: setTab }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { marginTop: T.spacing.sm2, fontSize: T.typography.sizes.caption, color: c.gray400 }, children: 'accentColor="#EF4444" (default)' })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "underline (default \u2014 team red)", desc: "accentColor defaults to #EF4444. Pass any team color.", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTabs, { variant: "underline", tabs: [{ label: "Schedule", value: "schedule" }, { label: "Results", value: "results" }, { label: "Standings", value: "standings" }], active: tab, onSelect: setTab }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { marginTop: T.spacing.sm2, fontSize: T.typography.sizes.caption, color: c.gray400 }, children: 'accentColor="#EF4444" (default)' })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "underline \u2014 Interactive States", desc: "Hover shows faint accent underline hint; pressed darkens text", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md, maxWidth: 398 }, children: ["default", "hover", "active"].map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "underline \u2014 Interactive States", desc: "Hover shows faint accent underline hint; pressed darkens text", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md, maxWidth: 398 }, children: ["default", "hover", "active"].map((s) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs }, children: [
                 "Inactive tab \u2192 ",
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: s })
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("strong", { children: s })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabs, { variant: "underline", tabs: [{ label: "Schedule", value: "schedule" }, { label: "Results", value: "results" }, { label: "Standings", value: "standings" }], active: "schedule", onSelect: () => {
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTabs, { variant: "underline", tabs: [{ label: "Schedule", value: "schedule" }, { label: "Results", value: "results" }, { label: "Standings", value: "standings" }], active: "schedule", onSelect: () => {
               }, _forceState: s })
             ] }, s)) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "underline \u2014 custom team colors", desc: "Same component, different accentColor per team/client", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.lg }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'accentColor="#116DFF" (Maccabi blue)' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabs, { variant: "underline", accentColor: "#116DFF", tabs: [{ label: "Overview", value: "overview" }, { label: "Stats", value: "stats" }, { label: "Highlights", value: "highlights" }], active: tab, onSelect: setTab })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "underline \u2014 custom team colors", desc: "Same component, different accentColor per team/client", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.lg }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'accentColor="#116DFF" (Maccabi blue)' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTabs, { variant: "underline", accentColor: "#116DFF", tabs: [{ label: "Overview", value: "overview" }, { label: "Stats", value: "stats" }, { label: "Highlights", value: "highlights" }], active: tab, onSelect: setTab })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'accentColor="#22C55E" (Haifa green)' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabs, { variant: "underline", accentColor: "#22C55E", tabs: [{ label: "Overview", value: "overview" }, { label: "Stats", value: "stats" }, { label: "Highlights", value: "highlights" }], active: tab, onSelect: setTab })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'accentColor="#22C55E" (Haifa green)' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTabs, { variant: "underline", accentColor: "#22C55E", tabs: [{ label: "Overview", value: "overview" }, { label: "Stats", value: "stats" }, { label: "Highlights", value: "highlights" }], active: tab, onSelect: setTab })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'accentColor="#E7A610" (premium amber)' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabs, { variant: "underline", accentColor: "#E7A610", tabs: [{ label: "Overview", value: "overview" }, { label: "Stats", value: "stats" }, { label: "Highlights", value: "highlights" }], active: tab, onSelect: setTab })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'accentColor="#E7A610" (premium amber)' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTabs, { variant: "underline", accentColor: "#E7A610", tabs: [{ label: "Overview", value: "overview" }, { label: "Stats", value: "stats" }, { label: "Highlights", value: "highlights" }], active: tab, onSelect: setTab })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Disabled Tabs", desc: "Individual tabs can be disabled \u2014 grayed out, not clickable", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.lg }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'pill \u2014 "Sign Up" disabled' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabs, { tabs: [{ label: "Sign In", value: "signin" }, { label: "Sign Up", value: "signup", disabled: true }], active: "signin", onSelect: () => {
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Disabled Tabs", desc: "Individual tabs can be disabled \u2014 grayed out, not clickable", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.lg }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'pill \u2014 "Sign Up" disabled' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTabs, { tabs: [{ label: "Sign In", value: "signin" }, { label: "Sign Up", value: "signup", disabled: true }], active: "signin", onSelect: () => {
                 } })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'underline \u2014 "Standings" disabled' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTabs, { variant: "underline", tabs: [{ label: "Schedule", value: "schedule" }, { label: "Results", value: "results" }, { label: "Standings", value: "standings", disabled: true }], active: "schedule", onSelect: () => {
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'underline \u2014 "Standings" disabled' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTabs, { variant: "underline", tabs: [{ label: "Schedule", value: "schedule" }, { label: "Results", value: "results" }, { label: "Standings", value: "standings", disabled: true }], active: "schedule", onSelect: () => {
                 } })
               ] })
             ] }) })
           ] }),
-          sec === "divider" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Divider" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Simple horizontal or vertical separator line. Used between sections in menus, lists, cards, and panels. Supports custom color, thickness, and spacing." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Default (horizontal)", desc: "1px gray200 line, full width", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "8px 0" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText, padding: "8px 0" }, children: "Section A" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, {}),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText, padding: "8px 0" }, children: "Section B" })
+          sec === "divider" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Divider" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Simple horizontal or vertical separator line. Used between sections in menus, lists, cards, and panels. Supports custom color, thickness, and spacing." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Default (horizontal)", desc: "1px gray200 line, full width", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { padding: "8px 0" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText, padding: "8px 0" }, children: "Section A" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PDivider2, {}),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText, padding: "8px 0" }, children: "Section B" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "With spacing", desc: "spacing prop adds equal margin on both sides", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText, padding: "4px 0" }, children: "Item 1" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { spacing: 12 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText, padding: "4px 0" }, children: "Item 2" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { spacing: 12 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText, padding: "4px 0" }, children: "Item 3" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "With spacing", desc: "spacing prop adds equal margin on both sides", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText, padding: "4px 0" }, children: "Item 1" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PDivider2, { spacing: 12 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText, padding: "4px 0" }, children: "Item 2" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PDivider2, { spacing: 12 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText, padding: "4px 0" }, children: "Item 3" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Custom color & thickness", desc: "color and thickness props for emphasis", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "8px 0" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { color: c.gray100, thickness: 1, spacing: 6 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xxs, color: c.gray400, textAlign: "center", margin: "4px 0" }, children: "gray100 \xB7 1px (subtle)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { color: c.gray200, thickness: 1, spacing: 6 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xxs, color: c.gray400, textAlign: "center", margin: "4px 0" }, children: "gray200 \xB7 1px (default)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { color: c.gray300, thickness: 2, spacing: 6 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xxs, color: c.gray400, textAlign: "center", margin: "4px 0" }, children: "gray300 \xB7 2px (strong)" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Custom color & thickness", desc: "color and thickness props for emphasis", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { padding: "8px 0" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PDivider2, { color: c.gray100, thickness: 1, spacing: 6 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xxs, color: c.gray400, textAlign: "center", margin: "4px 0" }, children: "gray100 \xB7 1px (subtle)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PDivider2, { color: c.gray200, thickness: 1, spacing: 6 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xxs, color: c.gray400, textAlign: "center", margin: "4px 0" }, children: "gray200 \xB7 1px (default)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PDivider2, { color: c.gray300, thickness: 2, spacing: 6 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontFamily: F, fontSize: T.typography.sizes.xxs, color: c.gray400, textAlign: "center", margin: "4px 0" }, children: "gray300 \xB7 2px (strong)" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Vertical", desc: "vertical={true} for side-by-side layouts", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", height: 40 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText }, children: "Left" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { vertical: true, spacing: 12 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText }, children: "Center" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PDivider, { vertical: true, spacing: 12 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText }, children: "Right" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Vertical", desc: "vertical={true} for side-by-side layouts", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", alignItems: "center", height: 40 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText }, children: "Left" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PDivider2, { vertical: true, spacing: 12 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText }, children: "Center" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PDivider2, { vertical: true, spacing: 12 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.body2, color: c.darkText }, children: "Right" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Card, { title: "Text divider", desc: "PTextDivider \u2014 centered label between lines (e.g. 'OR' in login forms)", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 398 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTextDivider, {}) }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 398, marginTop: T.spacing.md }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTextDivider, { text: "or continue with" }) })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Card, { title: "Text divider", desc: "PTextDivider \u2014 centered label between lines (e.g. 'OR' in login forms)", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 398 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTextDivider, {}) }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 398, marginTop: T.spacing.md }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTextDivider, { text: "or continue with" }) })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "color?: string \u2014 line color (default gray200)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "thickness?: number \u2014 line width in px (default 1)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "spacing?: number \u2014 margin on both sides in px (default 0)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "vertical?: boolean \u2014 render as vertical divider (default false)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "style?: CSSProperties \u2014 extra style overrides" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "color?: string \u2014 line color (default gray200)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "thickness?: number \u2014 line width in px (default 1)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "spacing?: number \u2014 margin on both sides in px (default 0)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "vertical?: boolean \u2014 render as vertical divider (default false)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "style?: CSSProperties \u2014 extra style overrides" })
             ] }) })
           ] }),
-          sec === "link" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "AppLink", code: C.appLink, codeTitle: "AppLink.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLink, { children: "muted (default)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLink, { variant: "accent", children: "accent (red underline)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLink, { variant: "primary", children: "primary (blue)" })
+          sec === "link" && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "AppLink", code: C.appLink, codeTitle: "AppLink.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.sm2 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PLink, { children: "muted (default)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PLink, { variant: "accent", children: "accent (red underline)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PLink, { variant: "primary", children: "primary (blue)" })
           ] }) }),
-          sec === "badges" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppBadge" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "5 variants \u2014 unified badge component" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "All Variants", code: C.appBadge, codeTitle: "AppBadge.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", gap: T.spacing.sm2, flexWrap: "wrap", alignItems: "center" }, children: ["live", "premium", "free", "claimed", "highlights"].map((v) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBadge, { variant: v }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: v })
+          sec === "badges" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppBadge" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "5 variants \u2014 unified badge component" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "All Variants", code: C.appBadge, codeTitle: "AppBadge.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "flex", gap: T.spacing.sm2, flexWrap: "wrap", alignItems: "center" }, children: ["live", "premium", "free", "claimed", "highlights"].map((v) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBadge, { variant: v }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: v })
             ] }, v)) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Usage Context", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PropsBlock, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md2 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.sm2 }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBadge, { variant: "live" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Usage Context", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PropsBlock2, { children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md2 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.sm2 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBadge, { variant: "live" }),
                 " LiveGameCard \u2014 game in progress"
               ] }) }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.sm2 }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBadge, { variant: "premium" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.sm2 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBadge, { variant: "premium" }),
                 " VideoThumbnail \u2014 locked content"
               ] }) }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.sm2 }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBadge, { variant: "free" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.sm2 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBadge, { variant: "free" }),
                 " VideoThumbnail \u2014 free content"
               ] }) }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.sm2 }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBadge, { variant: "claimed" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.sm2 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBadge, { variant: "claimed" }),
                 " ProductCard \u2014 item claimed"
               ] }) }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.sm2 }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBadge, { variant: "highlights" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { style: { display: "inline-flex", alignItems: "center", gap: T.spacing.sm2 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBadge, { variant: "highlights" }),
                 " GameResultCard \u2014 highlights available"
               ] }) })
             ] }) }) })
           ] }),
-          sec === "livegamecard" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "LiveGameCard", desc: "Horizontal card showing live game with live badge, date, teams, and scores", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLiveGameCard, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "PTeamRow \u2014 Shared Atom", desc: "Reusable team row used by LiveGameCard and GameResultCard. Accepts name, score, isWinner, logoSize, fontWeight, gap.", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamRowPreview, {}) })
+          sec === "livegamecard" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "LiveGameCard", desc: "Horizontal card showing live game with live badge, date, teams, and scores", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PLiveGameCard, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "PTeamRow \u2014 Shared Atom", desc: "Reusable team row used by LiveGameCard and GameResultCard. Accepts name, score, isWinner, logoSize, fontWeight, gap.", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamRowPreview, {}) })
           ] }),
-          sec === "gameresultcard" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "GameResultCard" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "GameResultCard", desc: "Vertical card with left date column, teams/scores on right, league + highlights badge at bottom", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PGameResultCard, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Highlights Badge", desc: "Yellow badge with play icon \u2014 used at bottom-right of game result cards", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.lg }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PHighlightsBadge, {}),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.caption, color: c.gray400 }, children: "bg: #6C6C6C, text: #FFE000, border: #FFE000" })
+          sec === "gameresultcard" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "GameResultCard" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "GameResultCard", desc: "Vertical card with left date column, teams/scores on right, league + highlights badge at bottom", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PGameResultCard, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Highlights Badge", desc: "Yellow badge with play icon \u2014 used at bottom-right of game result cards", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.lg }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PHighlightsBadge, {}),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.caption, color: c.gray400 }, children: "bg: #6C6C6C, text: #FFE000, border: #FFE000" })
             ] }) })
           ] }),
-          sec === "highlightcard" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "HighlightCard" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Vertical video highlight card with emoji-prefixed title, date, duration badge, and optional lock icon. Used in Game Detail for Game Highlights, Personal Highlights, Followed Players, and Other Players sections." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Locked Highlights (Premium)", desc: "Cards with yellow lock icon badge \u2014 paywall content", code: C.highlightCard, codeTitle: "HighlightCard.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, flexWrap: "wrap" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PHighlightCard, { title: "Weiss with the dimes", duration: "1:23", emoji: "\u{1F3C0}", locked: true }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PHighlightCard, { title: "Best plays of the game", duration: "5:15", emoji: "\u{1F525}", locked: true }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PHighlightCard, { title: "Top scoring moments", duration: "3:45", emoji: "\u2B50", locked: true }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PHighlightCard, { title: "Dunks & points", duration: "2:20", emoji: "\u{1F3C6}", locked: true })
+          sec === "highlightcard" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "HighlightCard" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Vertical video highlight card with emoji-prefixed title, date, duration badge, and optional lock icon. Used in Game Detail for Game Highlights, Personal Highlights, Followed Players, and Other Players sections." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Locked Highlights (Premium)", desc: "Cards with yellow lock icon badge \u2014 paywall content", code: C.highlightCard, codeTitle: "HighlightCard.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, flexWrap: "wrap" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PHighlightCard2, { title: "Weiss with the dimes", duration: "1:23", emoji: "\u{1F3C0}", locked: true }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PHighlightCard2, { title: "Best plays of the game", duration: "5:15", emoji: "\u{1F525}", locked: true }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PHighlightCard2, { title: "Top scoring moments", duration: "3:45", emoji: "\u2B50", locked: true }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PHighlightCard2, { title: "Dunks & points", duration: "2:20", emoji: "\u{1F3C6}", locked: true })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Free Highlights (No Lock)", desc: "Cards without lock icon \u2014 freely accessible content", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, flexWrap: "wrap" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PHighlightCard, { title: "#4 Gets the ball Forward", duration: "0:45", emoji: "\u{1F3C0}", locked: false }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PHighlightCard, { title: "#11 Gets the ball Forward", duration: "0:32", emoji: "\u{1F3C0}", locked: false })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Free Highlights (No Lock)", desc: "Cards without lock icon \u2014 freely accessible content", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, flexWrap: "wrap" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PHighlightCard2, { title: "#4 Gets the ball Forward", duration: "0:45", emoji: "\u{1F3C0}", locked: false }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PHighlightCard2, { title: "#11 Gets the ball Forward", duration: "0:32", emoji: "\u{1F3C0}", locked: false })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { variant: "muted", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: "thumbnail: string" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { variant: "muted", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { children: "thumbnail: string" }),
               " \u2014 background image URL",
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("br", {}),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: "duration: string" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("br", {}),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { children: "duration: string" }),
               " \u2014 video length badge (top-left)",
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("br", {}),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: "title: string" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("br", {}),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { children: "title: string" }),
               " \u2014 emoji-prefixed title overlay",
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("br", {}),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: "date: string" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("br", {}),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { children: "date: string" }),
               " \u2014 date below title",
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("br", {}),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: "locked: boolean" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("br", {}),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { children: "locked: boolean" }),
               " \u2014 show/hide yellow lock icon (default: true)"
             ] }) })
           ] }),
-          sec === "scorecard" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "ScoreCard", desc: "Final score display with teams, scores, game status, date, and standings", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PScoreCard, {}) }),
-          sec === "videothumbnail" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "VideoThumbnail" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "2 orientations \xD7 2 lock states \u2014 unified component" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Card, { title: "Landscape (16:9)", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { style: { margin: "0 0 8px", fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.semibold, color: c.gray500 }, children: "Free (locked=false)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "landscape", locked: false, duration: "1:42:15", title: "Full Game", subtitle: "Free" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { style: { margin: "16px 0 8px", fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.semibold, color: c.gray500 }, children: "Premium (locked=true)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "landscape", locked: true, duration: "22:30", title: "Condensed Game", subtitle: "Premium Only" })
+          sec === "scorecard" && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "ScoreCard", desc: "Final score display with teams, scores, game status, date, and standings", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PScoreCard, {}) }),
+          sec === "videothumbnail" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "VideoThumbnail" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "2 orientations \xD7 2 lock states \u2014 unified component" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Card, { title: "Landscape (16:9)", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h4", { style: { margin: "0 0 8px", fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.semibold, color: c.gray500 }, children: "Free (locked=false)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoThumbnail2, { orientation: "landscape", locked: false, duration: "1:42:15", title: "Full Game", subtitle: "Free" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h4", { style: { margin: "16px 0 8px", fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.semibold, color: c.gray500 }, children: "Premium (locked=true)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoThumbnail2, { orientation: "landscape", locked: true, duration: "22:30", title: "Condensed Game", subtitle: "Premium Only" })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Card, { title: "Vertical (9:16)", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { style: { margin: "0 0 8px", fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.semibold, color: c.gray500 }, children: "Locked" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", locked: true, duration: "1:23", title: "\u{1F3C0} Weiss with the dimes", subtitle: "NOV 13, 2025" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", locked: true, duration: "2:45", title: "\u{1F3C0} Fast break layup", subtitle: "NOV 13, 2025" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", locked: true, duration: "0:58", title: "\u{1F3C0} Three pointer", subtitle: "NOV 13, 2025" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Card, { title: "Vertical (9:16)", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h4", { style: { margin: "0 0 8px", fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.semibold, color: c.gray500 }, children: "Locked" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoThumbnail2, { orientation: "vertical", locked: true, duration: "1:23", title: "\u{1F3C0} Weiss with the dimes", subtitle: "NOV 13, 2025" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoThumbnail2, { orientation: "vertical", locked: true, duration: "2:45", title: "\u{1F3C0} Fast break layup", subtitle: "NOV 13, 2025" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoThumbnail2, { orientation: "vertical", locked: true, duration: "0:58", title: "\u{1F3C0} Three pointer", subtitle: "NOV 13, 2025" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { style: { margin: "16px 0 8px", fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.semibold, color: c.gray500 }, children: "Free" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", locked: false, duration: "4:10", title: "\u{1F3C0} #4 Gets the ball Forward", subtitle: "NOV 13, 2025" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", locked: false, duration: "3:22", title: "\u{1F3C0} Alley-oop finish", subtitle: "NOV 13, 2025" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h4", { style: { margin: "16px 0 8px", fontSize: T.typography.sizes.body2, fontWeight: T.typography.weights.semibold, color: c.gray500 }, children: "Free" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoThumbnail2, { orientation: "vertical", locked: false, duration: "4:10", title: "\u{1F3C0} #4 Gets the ball Forward", subtitle: "NOV 13, 2025" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoThumbnail2, { orientation: "vertical", locked: false, duration: "3:22", title: "\u{1F3C0} Alley-oop finish", subtitle: "NOV 13, 2025" })
               ] })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Jersey Badge variant", desc: "Used in Athlete Profile highlights grid \u2014 shows sleeveless jersey with number + label instead of title/subtitle", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 1, duration: "0:45", jerseyLabel: "Player\nHighlights" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 23, duration: "1:23", jerseyLabel: "Player\nHighlights", jerseyColor: "#116DFF" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoThumbnail, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 8, duration: "0:32", jerseyLabel: "Player\nHighlights", jerseyColor: "#FFE000" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Jersey Badge variant", desc: "Used in Athlete Profile highlights grid \u2014 shows sleeveless jersey with number + label instead of title/subtitle", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoThumbnail2, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 1, duration: "0:45", jerseyLabel: "Player\nHighlights" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoThumbnail2, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 23, duration: "1:23", jerseyLabel: "Player\nHighlights", jerseyColor: "#116DFF" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoThumbnail2, { orientation: "vertical", showJerseyBadge: true, jerseyNumber: 8, duration: "0:32", jerseyLabel: "Player\nHighlights", jerseyColor: "#FFE000" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'orientation: "landscape" | "vertical"' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "locked: boolean (false = Play icon, true = Lock icon + blur)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'duration: string ("1:42:15")' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'title: string ("Full Game")' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'subtitle: string ("Free" / "Premium Only")' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "showJerseyBadge: boolean \u2014 jersey badge instead of title/subtitle" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "jerseyNumber: number \u2014 player number on the jersey" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'jerseyLabel: string \u2014 text next to jersey ("Player Highlights")' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "jerseyColor: string \u2014 jersey fill color (default #D0142C, auto dark text on light colors)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "thumbnailUrl: string \u2014 background image URL" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'orientation: "landscape" | "vertical"' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "locked: boolean (false = Play icon, true = Lock icon + blur)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'duration: string ("1:42:15")' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'title: string ("Full Game")' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'subtitle: string ("Free" / "Premium Only")' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "showJerseyBadge: boolean \u2014 jersey badge instead of title/subtitle" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "jerseyNumber: number \u2014 player number on the jersey" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'jerseyLabel: string \u2014 text next to jersey ("Player Highlights")' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "jerseyColor: string \u2014 jersey fill color (default #D0142C, auto dark text on light colors)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "thumbnailUrl: string \u2014 background image URL" })
             ] }) })
           ] }),
-          sec === "teamstatsbar" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Card, { title: "TeamStatsBar", desc: "Comparative stat bar with left/right values, center label, and proportional bars", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsBar, { label: "Points", leftVal: 82, rightVal: 76 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsBar, { label: "Field Goal %", leftVal: 48, rightVal: 42 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsBar, { label: "2-Point %", leftVal: 54, rightVal: 49 })
+          sec === "teamstatsbar" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Card, { title: "TeamStatsBar", desc: "Comparative stat bar with left/right values, center label, and proportional bars", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamStatsBar, { label: "Points", leftVal: 82, rightVal: 76 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamStatsBar, { label: "Field Goal %", leftVal: 48, rightVal: 42 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamStatsBar, { label: "2-Point %", leftVal: 54, rightVal: 49 })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "TeamStatsBar \u2014 Paywall", desc: "Blurred stats with lock overlay, 'Buy Team Stats' text, and yellow Buy Now CTA", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamStatsPaywall, {}) })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "TeamStatsBar \u2014 Paywall", desc: "Blurred stats with lock overlay, 'Buy Team Stats' text, and yellow Buy Now CTA", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamStatsPaywall, {}) })
           ] }),
-          sec === "gameleaders" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "GameLeaders", desc: "Side-by-side leader comparison with player numbers, stat details, and center category label", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PGameLeaders, {}) }),
-          sec === "playerstats" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "PlayerStats Table", desc: "Team-tabbed player stats table with columns: Player, MIN, PTS, REB, AST", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerStatsTable, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Player Stats + Game Leaders \u2014 Paywall", desc: "Blurred PlayerStats table and GameLeaders with lock overlay and Buy Now CTA", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerStatsPaywall, {}) })
+          sec === "gameleaders" && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "GameLeaders", desc: "Side-by-side leader comparison with player numbers, stat details, and center category label", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PGameLeaders, {}) }),
+          sec === "playerstats" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "PlayerStats Table", desc: "Team-tabbed player stats table with columns: Player, MIN, PTS, REB, AST", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerStatsTable, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Player Stats + Game Leaders \u2014 Paywall", desc: "Blurred PlayerStats table and GameLeaders with lock overlay and Buy Now CTA", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerStatsPaywall, {}) })
           ] }),
-          sec === "statsgrid" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "StatsGrid", desc: "3-column grid of stat boxes with label and bold value \u2014 built from PStatCard", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PStatsGrid, {}) }),
-          sec === "seasonstatsrow" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "SeasonStatsRow", desc: "4 stat boxes in a row: MPG, PPG, APG, RPG \u2014 built from PStatCard", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSeasonStatsRow, {}) }),
-          sec === "athleteprofilecard" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Athlete Profile" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Full athlete profile page \u2014 390px wide. Uses DS components: PPlayerPhoto (hero), PTeamLogo (team link), ArrowLeft + Share2 (nav icons), PStatCard, PSectionHeader, PVideoThumbnail, PSeeAllLink. All colors use DS tokens." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Default \u2014 Tal Weiss #1", desc: "Full page view 1:1 Figma", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AthleteProfileCard, {}) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Custom player", desc: "Pass name, number, position, teamName, accentColor", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AthleteProfileCard, { name: "BEN SIMMONS", number: 25, position: "Point Guard", teamName: "S.D Spartans", accentColor: "#007cbe" }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "DS Components Used", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "PPlayerPhoto \u2014 circular hero photo (photoUrl from server)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "PTeamLogo \u2014 team icon next to team name (teamLogoUrl from server)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "ArrowLeft (lucide) \u2014 back navigation icon" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "Share2 (lucide) \u2014 share action icon" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "ChevronDown (lucide, rotated) \u2014 team name link chevron" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "PStatCard \u2014 career + season stat tiles" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'PSectionHeader \u2014 "My Highlights", "Season Stats" headings' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "PVideoThumbnail \u2014 highlight video grid" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'PSeeAllLink \u2014 "See all" navigation' })
+          sec === "statsgrid" && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "StatsGrid", desc: "3-column grid of stat boxes with label and bold value \u2014 built from PStatCard", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PStatsGrid, {}) }),
+          sec === "seasonstatsrow" && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "SeasonStatsRow", desc: "4 stat boxes in a row: MPG, PPG, APG, RPG \u2014 built from PStatCard", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSeasonStatsRow, {}) }),
+          sec === "athleteprofilecard" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Athlete Profile" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Full athlete profile page \u2014 390px wide. Uses DS components: PPlayerPhoto (hero), PTeamLogo (team link), ArrowLeft + Share2 (nav icons), PStatCard, PSectionHeader, PVideoThumbnail, PSeeAllLink. All colors use DS tokens." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Default \u2014 Tal Weiss #1", desc: "Full page view 1:1 Figma", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(AthleteProfileCard, {}) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Custom player", desc: "Pass name, number, position, teamName, accentColor", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(AthleteProfileCard, { name: "BEN SIMMONS", number: 25, position: "Point Guard", teamName: "S.D Spartans", accentColor: "#007cbe" }) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "DS Components Used", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "PPlayerPhoto \u2014 circular hero photo (photoUrl from server)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "PTeamLogo \u2014 team icon next to team name (teamLogoUrl from server)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "ArrowLeft (lucide) \u2014 back navigation icon" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "Share2 (lucide) \u2014 share action icon" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "ChevronDown (lucide, rotated) \u2014 team name link chevron" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "PStatCard \u2014 career + season stat tiles" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'PSectionHeader \u2014 "My Highlights", "Season Stats" headings' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "PVideoThumbnail \u2014 highlight video grid" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'PSeeAllLink \u2014 "See all" navigation' })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "name: string \u2014 full name, rendered uppercase split over 2 lines" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "number: number \u2014 jersey number shown in position row" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'position: string \u2014 e.g. "Guard", "Forward"' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "teamName: string \u2014 team link label" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "teamLogoUrl?: string \u2014 server-provided team logo (replaces PTeamLogo placeholder)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "accentColor: string \u2014 team accent color (team name, chevrons)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "photoUrl: string \u2014 circular athlete photo from server (via PPlayerPhoto)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onBack?: () => void \u2014 back button handler" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onShare?: () => void \u2014 share button handler" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onTeamTap?: () => void \u2014 team name link handler" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "name: string \u2014 full name, rendered uppercase split over 2 lines" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "number: number \u2014 jersey number shown in position row" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'position: string \u2014 e.g. "Guard", "Forward"' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "teamName: string \u2014 team link label" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "teamLogoUrl?: string \u2014 server-provided team logo (replaces PTeamLogo placeholder)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "accentColor: string \u2014 team accent color (team name, chevrons)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "photoUrl: string \u2014 circular athlete photo from server (via PPlayerPhoto)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onBack?: () => void \u2014 back button handler" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onShare?: () => void \u2014 share button handler" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onTeamTap?: () => void \u2014 team name link handler" })
             ] }) })
           ] }),
-          sec === "teampage" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Team Page" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Full team profile page \u2014 390px wide. Shows team logo, name, game counts, Follow button, social links, live games (horizontal scroll), and recent games list with "See all".' }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Default", desc: "Full page view 1:1 Figma", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TeamPage, {}) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "teamName: string \u2014 team name, supports \\n for line breaks" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "logoUrl: string \u2014 team logo image URL (circular 120px)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "accentColor: string \u2014 accent color for Follow button" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "liveCount: number \u2014 number of live games" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "upcomingCount: number \u2014 number of upcoming games" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "totalCount: number \u2014 total games" })
+          sec === "teampage" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Team Page" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Full team profile page \u2014 390px wide. Shows team logo, name, game counts, Follow button, social links, live games (horizontal scroll), and recent games list with "See all".' }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Default", desc: "Full page view 1:1 Figma", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(TeamPage, {}) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "teamName: string \u2014 team name, supports \\n for line breaks" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "logoUrl: string \u2014 team logo image URL (circular 120px)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "accentColor: string \u2014 accent color for Follow button" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "liveCount: number \u2014 number of live games" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "upcomingCount: number \u2014 number of upcoming games" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "totalCount: number \u2014 total games" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Reused components", desc: "Components from existing DS used in TeamPage", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'PSectionHeader \u2014 "Live" and "Recent Games" headings' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'PBtn \u2014 "Follow" button (primary, lg)' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "PLiveGameCard \u2014 live game cards in horizontal scroll" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "PGameResultCard \u2014 recent game cards in vertical list" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'PSeeAllLink \u2014 "See all" link at bottom' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "PSocialLinks \u2014 social media icon row" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Reused components", desc: "Components from existing DS used in TeamPage", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'PSectionHeader \u2014 "Live" and "Recent Games" headings' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'PBtn \u2014 "Follow" button (primary, lg)' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "PLiveGameCard \u2014 live game cards in horizontal scroll" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "PGameResultCard \u2014 recent game cards in vertical list" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'PSeeAllLink \u2014 "See all" link at bottom' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "PSocialLinks \u2014 social media icon row" })
             ] }) })
           ] }),
-          sec === "infoalert" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "InfoAlert", desc: "Light purple card with purple title and gray description text", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PInfoAlert, { title: "Claimed Athletes Only", description: "This content is only available for claimed athlete profiles." }) }),
-          sec === "paymentmodal" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "PaymentModal", desc: "Subscription plan selection with expandable feature lists and CTA", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPaymentModal, {}) }),
-          sec === "upgradebanner" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "UpgradeBanner", desc: "Amber banner with lock icon, upgrade message, and action button", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PUpgradeBanner, {}) }),
-          sec === "videotypechips" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "VideoTypeChips" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Horizontal pill row \u2014 active (red, bold), inactive (gray, with lock icon for premium content)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Interactive Preview", desc: "Click chips to switch active state. Lock icons persist on active chip.", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoTypeChips, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Chip States \u2014 default / hover / pressed / disabled", desc: "Each chip type shown in all 4 interaction states", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PChipStatesPreview, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "All Active States", desc: "Each chip shown as the active selection", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PChipAllActivePreview, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Anatomy", desc: "Token mapping for each state", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { variant: "muted", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          sec === "infoalert" && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "InfoAlert", desc: "Light purple card with purple title and gray description text", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PInfoAlert, { title: "Claimed Athletes Only", description: "This content is only available for claimed athlete profiles." }) }),
+          sec === "paymentmodal" && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "PaymentModal", desc: "Subscription plan selection with expandable feature lists and CTA", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPaymentModal, {}) }),
+          sec === "upgradebanner" && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "UpgradeBanner", desc: "Amber banner with lock icon, upgrade message, and action button", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PUpgradeBanner, {}) }),
+          sec === "videotypechips" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "VideoTypeChips" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Horizontal pill row \u2014 active (red, bold), inactive (gray, with lock icon for premium content)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Interactive Preview", desc: "Click chips to switch active state. Lock icons persist on active chip.", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoTypeChips, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Chip States \u2014 default / hover / pressed / disabled", desc: "Each chip type shown in all 4 interaction states", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PChipStatesPreview, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "All Active States", desc: "Each chip shown as the active selection", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PChipAllActivePreview, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Anatomy", desc: "Token mapping for each state", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { variant: "muted", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "Active chip: bg ",
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.jerseyRed, color: c.white, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#D0142C" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.jerseyRed, color: c.white, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#D0142C" }),
                 " \xB7 text ",
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#FFFFFF" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#FFFFFF" }),
                 " \xB7 fontWeight 600"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "Inactive chip: bg ",
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray100, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#EDEDED" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray100, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#EDEDED" }),
                 " \xB7 text ",
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#000000" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#000000" }),
                 " \xB7 fontWeight 400"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "Lock icon: bg ",
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.premiumDark, color: c.premiumYellow, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#362F2C" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.premiumDark, color: c.premiumYellow, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#362F2C" }),
                 " \xB7 20\xD720 circle \xB7 LockSvg 8px"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "Chip: height 40px \xB7 borderRadius 26px \xB7 padding 8px 12px \xB7 gap 12px between chips" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "Chip: height 40px \xB7 borderRadius 26px \xB7 padding 8px 12px \xB7 gap 12px between chips" })
             ] }) })
           ] }),
-          sec === "videoactionbar" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "VideoActionBar" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Row below the video player \u2014 view count on the left, download / share / bookmark on the right" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "VideoActionBar Preview", desc: "Appears below the video thumbnail on the player page \u2014 click bookmark to toggle", code: C.videoActionBar, codeTitle: "VideoActionBar.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 398 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoActionBar, { views: bmk ? "1,240 views" : "1 view", bookmarked: bmk, onBookmark: () => setBmk(!bmk) }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Icon Button States \u2014 default / hover / pressed / disabled", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.lg2 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "default" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: T.spacing.sm }, children: [
+          sec === "videoactionbar" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "VideoActionBar" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Row below the video player \u2014 view count on the left, download / share / bookmark on the right" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "VideoActionBar Preview", desc: "Appears below the video thumbnail on the player page \u2014 click bookmark to toggle", code: C.videoActionBar, codeTitle: "VideoActionBar.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 398 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoActionBar, { views: bmk ? "1,240 views" : "1 view", bookmarked: bmk, onBookmark: () => setBmk(!bmk) }) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Icon Button States \u2014 default / hover / pressed / disabled", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.lg2 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "default" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: T.spacing.sm }, children: [
                   { label: "default", state: "default" },
                   { label: "hover", state: "hover" },
                   { label: "pressed", state: "active" },
                   { label: "disabled", state: "disabled" }
-                ].map(({ label, state }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2 }, children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoActionIconBtn, { icon: Download, _forceState: state, disabled: state === "disabled", ariaLabel: "Download" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: label })
+                ].map(({ label, state }) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2 }, children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoActionIconBtn, { icon: Download, _forceState: state, disabled: state === "disabled", ariaLabel: "Download" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: label })
                 ] }, label)) })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "active (bookmarked)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: T.spacing.sm }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "active (bookmarked)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: T.spacing.sm }, children: [
                   { label: "default", state: "default" },
                   { label: "hover", state: "hover" },
                   { label: "pressed", state: "active" },
                   { label: "disabled", state: "disabled" }
-                ].map(({ label, state }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2 }, children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoActionIconBtn, { icon: Bookmark, active: true, _forceState: state, disabled: state === "disabled", isBookmark: true, ariaLabel: true ? "Remove bookmark" : "Add bookmark" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: label })
+                ].map(({ label, state }) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs2 }, children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoActionIconBtn, { icon: Bookmark, active: true, _forceState: state, disabled: state === "disabled", isBookmark: true, ariaLabel: true ? "Remove bookmark" : "Add bookmark" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: label })
                 ] }, label)) })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Bookmarked vs Default", desc: "Click the bookmark icon to toggle \u2014 icon pops and fills blue on bookmark, reverses on un-bookmark", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Bookmarked vs Default", desc: "Click the bookmark icon to toggle \u2014 icon pops and fills blue on bookmark, reverses on un-bookmark", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 398, display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: [
                   "interactive \u2014 click bookmark to toggle ",
-                  bmk ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: c.primary, fontWeight: T.typography.weights.semibold }, children: "(bookmarked)" }) : "(not bookmarked)"
+                  bmk ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { color: c.primary, fontWeight: T.typography.weights.semibold }, children: "(bookmarked)" }) : "(not bookmarked)"
                 ] }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoActionBar, { views: bmk ? "1,240 views" : "1 view", bookmarked: bmk, onBookmark: () => setBmk(!bmk) })
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoActionBar, { views: bmk ? "1,240 views" : "1 view", bookmarked: bmk, onBookmark: () => setBmk(!bmk) })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "disabled \u2014 all buttons disabled" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PVideoActionBar, { views: "0 views", disabled: true })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "disabled \u2014 all buttons disabled" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PVideoActionBar, { views: "0 views", disabled: true })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'views: string \u2014 dynamic, changes per page visit (e.g. "1 view", "1,240 views")' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "bookmarked: boolean \u2014 toggles bookmark icon to active (blue) state" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "disabled: boolean \u2014 disables all action buttons" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "@download \u2014 emitted on download tap" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "@share \u2014 emitted on share tap (opens ShareCurtain)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "@bookmark \u2014 emitted on bookmark tap" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'views: string \u2014 dynamic, changes per page visit (e.g. "1 view", "1,240 views")' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "bookmarked: boolean \u2014 toggles bookmark icon to active (blue) state" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "disabled: boolean \u2014 disables all action buttons" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "@download \u2014 emitted on download tap" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "@share \u2014 emitted on share tap (opens ShareCurtain)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "@bookmark \u2014 emitted on bookmark tap" })
             ] }) })
           ] }),
-          sec === "sharecurtain" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "ShareCurtain" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Bottom sheet with 6 share channels \u2014 triggered from video player share icon" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Share Curtain Preview", desc: "Bottom sheet with 6 social share channels, backdrop overlay, and Cancel button", code: C.shareCurtain, codeTitle: "ShareCurtain.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PShareCurtainStatic, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { variant: "muted", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "open: boolean \u2014 controls visibility" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onClose: () => void \u2014 called on backdrop click or Cancel" })
+          sec === "sharecurtain" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "ShareCurtain" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Bottom sheet with 6 share channels \u2014 triggered from video player share icon" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Share Curtain Preview", desc: "Bottom sheet with 6 social share channels, backdrop overlay, and Cancel button", code: C.shareCurtain, codeTitle: "ShareCurtain.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PShareCurtainStatic, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { variant: "muted", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "open: boolean \u2014 controls visibility" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onClose: () => void \u2014 called on backdrop click or Cancel" })
             ] }) })
           ] }),
-          sec === "brandhero" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "BrandHero" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Auth screen hero \u2014 gradient background (team primary \u2192 30% darker) with centered logo. White-label ready." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Default \u2014 Pixellot", code: C.brandHero, codeTitle: "BrandHero.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.lg, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBrandHero, {}) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Custom Team Colors", desc: "Pass any primaryColor to match client branding. Logo slot can be overridden.", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.lg }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'primaryColor="#D0142C" (Maccabi red)' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.lg, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBrandHero, { primaryColor: "#D0142C", height: 340 }) })
+          sec === "brandhero" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "BrandHero" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Auth screen hero \u2014 gradient background (team primary \u2192 30% darker) with centered logo. White-label ready." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Default \u2014 Pixellot", code: C.brandHero, codeTitle: "BrandHero.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.lg, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBrandHero, {}) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Custom Team Colors", desc: "Pass any primaryColor to match client branding. Logo slot can be overridden.", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.lg }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'primaryColor="#D0142C" (Maccabi red)' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.lg, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBrandHero, { primaryColor: "#D0142C", height: 340 }) })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'primaryColor="#1A6B3C" (Azteca green)' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.lg, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBrandHero, { primaryColor: "#1A6B3C", height: 340 }) })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'primaryColor="#1A6B3C" (Azteca green)' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.lg, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBrandHero, { primaryColor: "#1A6B3C", height: 340 }) })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'primaryColor="#E7A610" (Premium amber)' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.lg, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBrandHero, { primaryColor: "#E7A610", height: 340 }) })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xs2 }, children: 'primaryColor="#E7A610" (Premium amber)' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.lg, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBrandHero, { primaryColor: "#E7A610", height: 340 }) })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Anatomy", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "Height: 340px (default) \u2014 ~40% of 390px-wide viewport" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "Background: linear-gradient(180deg, primaryColor 0%, darkerColor 100%)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "darkerColor: primaryColor channels \xD7 0.7 (30% darker)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "Bottom corners: borderRadius 0 0 32px 32px" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "Logo: centered, default PixellotLogo at 80px" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Anatomy", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "Height: 340px (default) \u2014 ~40% of 390px-wide viewport" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "Background: linear-gradient(180deg, primaryColor 0%, darkerColor 100%)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "darkerColor: primaryColor channels \xD7 0.7 (30% darker)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "Bottom corners: borderRadius 0 0 32px 32px" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "Logo: centered, default PixellotLogo at 80px" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "Slot: override with any team/client logo via ",
                 "<slot>"
               ] })
             ] }) })
           ] }),
-          sec === "adbanner" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AdBanner" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Full-width ad banner carousel with swipeable pagination dots. Displayed at top of the home/Following page." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Card, { title: "Banner Carousel", desc: "Two slides with pagination dots \u2014 drag/swipe to change slides", code: C.adBanner, codeTitle: "AdBanner.vue", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 398 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAdBanner, { active: 0 }) }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.sm }, children: "Drag left/right to swipe between slides. 40px threshold triggers navigation." })
+          sec === "adbanner" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AdBanner" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Full-width ad banner carousel with swipeable pagination dots. Displayed at top of the home/Following page." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Card, { title: "Banner Carousel", desc: "Two slides with pagination dots \u2014 drag/swipe to change slides", code: C.adBanner, codeTitle: "AdBanner.vue", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 398 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAdBanner, { active: 0 }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.sm }, children: "Drag left/right to swipe between slides. 40px threshold triggers navigation." })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Pagination Dots", desc: "Active dot: white/solid; Inactive: white/50% opacity", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg2, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.sm, background: c.gray100, padding: "12px 20px", borderRadius: T.radii.thumb }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 8, height: 8, borderRadius: "50%", background: c.white } }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.5)" } })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Pagination Dots", desc: "Active dot: white/solid; Inactive: white/50% opacity", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg2, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.sm, background: c.gray100, padding: "12px 20px", borderRadius: T.radii.thumb }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { width: 8, height: 8, borderRadius: "50%", background: c.white } }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.5)" } })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.caption, color: c.gray400 }, children: "Dots on dark background" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.caption, color: c.gray400 }, children: "Dots on dark background" })
             ] }) })
           ] }),
-          sec === "notificationcenter" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "NotificationCenter" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Dropdown panel triggered from the bell icon in the top bar. Shows player highlight notifications with jersey avatars." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Bell Icon with Badge", desc: "Notification bell with red count badge", code: C.notificationCenter, codeTitle: "NotificationCenter.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.xxl, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBellIcon, { count: 0 }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs2 }, children: "No notifications" })
+          sec === "notificationcenter" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "NotificationCenter" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Dropdown panel triggered from the bell icon in the top bar. Shows player highlight notifications with jersey avatars." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Bell Icon with Badge", desc: "Notification bell with red count badge", code: C.notificationCenter, codeTitle: "NotificationCenter.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.xxl, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBellIcon2, { count: 0 }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs2 }, children: "No notifications" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBellIcon, { count: 1 }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs2 }, children: "1 notification" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBellIcon2, { count: 1 }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs2 }, children: "1 notification" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBellIcon, { count: 3 }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs2 }, children: "3 notifications" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBellIcon2, { count: 3 }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs2 }, children: "3 notifications" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBellIcon, { count: 99 }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs2 }, children: "99 notifications" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBellIcon2, { count: 99 }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs2 }, children: "99 notifications" })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Notification Center Dropdown", desc: "Panel with jersey avatar items and Clear all action", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PNotificationCenter, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Single Notification Item", desc: "Jersey avatar + notification text", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 380 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PNotificationItem, { jerseyNumber: 11 }) }) })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Notification Center Dropdown", desc: "Panel with jersey avatar items and Clear all action", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PNotificationCenter, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Single Notification Item", desc: "Jersey avatar + notification text", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 380 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PNotificationItem, { jerseyNumber: 11 }) }) })
           ] }),
-          sec === "profilesidebar" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "SideMenu \u2014 Profile variant" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Right-slide drawer triggered from hamburger icon in top bar. Uses PSideMenu variant="profile" \u2014 same component as the org menu, with user avatar header, league accordions, Following card (teams & players), and profile-specific menu items.' }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Profile variant (Full Preview)", desc: "Dark backdrop + right-side panel with user info, claimed player, and menu", code: C.profileSidebar, codeTitle: "ProfileSidebar.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSideMenu, { variant: "profile" }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "User Avatar", desc: "Gray circle with user initials \u2014 used in top bar and sidebar header", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAvatar, { initials: "BR", size: 40 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAvatar, { initials: "WT", size: 36 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAvatar, { initials: "JD", size: 28 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.caption, color: c.gray400 }, children: "Sizes: 40px (sidebar), 36px (top bar), 28px (compact)" })
+          sec === "profilesidebar" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "SideMenu \u2014 Profile variant" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Right-slide drawer triggered from hamburger icon in top bar. Uses PSideMenu variant="profile" \u2014 same component as the org menu, with user avatar header, league accordions, Following card (teams & players), and profile-specific menu items.' }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Profile variant (Full Preview)", desc: "Dark backdrop + right-side panel with user info, claimed player, and menu", code: C.profileSidebar, codeTitle: "ProfileSidebar.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSideMenu, { variant: "profile" }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "User Avatar", desc: "Gray circle with user initials \u2014 used in top bar and sidebar header", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAvatar, { initials: "BR", size: 40 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAvatar, { initials: "WT", size: 36 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAvatar, { initials: "JD", size: 28 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.caption, color: c.gray400 }, children: "Sizes: 40px (sidebar), 36px (top bar), 28px (compact)" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Claimed Player Card", desc: "Player info card shown at top of profile sidebar", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 300 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PClaimedPlayerCard, {}) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Menu List Items", desc: "Navigation items with chevron, badge count, link variant, and danger variant", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 300 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PMenuListItem, { label: "Following", badge: 14 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PMenuListItem, { label: "Language" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PMenuListItem, { label: "My Account" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PMenuListItem, { label: "Claim Player", variant: "link" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Claimed Player Card", desc: "Player info card shown at top of profile sidebar", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 300 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PClaimedPlayerCard, {}) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Menu List Items", desc: "Navigation items with chevron, badge count, link variant, and danger variant", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 300 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PMenuListItem, { label: "Following", badge: 14 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PMenuListItem, { label: "Language" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PMenuListItem, { label: "My Account" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PMenuListItem, { label: "Claim Player", variant: "link" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Menu List Item \u2014 Interactive States", desc: "Hover highlights row; pressed darkens background", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 300 }, children: ["default", "hover", "active"].map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xxs, marginTop: T.spacing.sm }, children: s }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PMenuListItem, { label: "Following", badge: 14, _forceState: s })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Menu List Item \u2014 Interactive States", desc: "Hover highlights row; pressed darkens background", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 300 }, children: ["default", "hover", "active"].map((s) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.xxs, marginTop: T.spacing.sm }, children: s }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PMenuListItem, { label: "Following", badge: 14, _forceState: s })
             ] }, s)) }) })
           ] }),
-          sec === "teamlogo" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PTeamLogo" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Team logo circle with deterministic color placeholder fallback. When logoUrl is provided it renders the image; otherwise generates a colored initial from the team name hash." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Placeholder (no logo)", desc: "Deterministic color + initial from team name hash", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center", flexWrap: "wrap" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Maccabi" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "Maccabi" })
+          sec === "teamlogo" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PTeamLogo" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Team logo circle with deterministic color placeholder fallback. When logoUrl is provided it renders the image; otherwise generates a colored initial from the team name hash." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Placeholder (no logo)", desc: "Deterministic color + initial from team name hash", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center", flexWrap: "wrap" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Maccabi" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "Maccabi" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Hapoel" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "Hapoel" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Hapoel" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "Hapoel" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Ironi" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "Ironi" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Ironi" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "Ironi" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Bnei Herzliya" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "Bnei Herzliya" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Bnei Herzliya" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "Bnei Herzliya" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Elitzur" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "Elitzur" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Elitzur" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "Elitzur" })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "With logo URL", desc: "Renders server-provided team logo", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Riverside", logoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="40" fill="#D0142C"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">RM</text></svg>')}` }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Logan", logoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="40" fill="#116DFF"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">LT</text></svg>')}` })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "With logo URL", desc: "Renders server-provided team logo", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Riverside", logoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="40" fill="#D0142C"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">RM</text></svg>')}` }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Logan", logoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="40" fill="#116DFF"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">LT</text></svg>')}` })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Sizes", desc: "size prop controls diameter", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 20, name: "Small" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "20px" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Sizes", desc: "size prop controls diameter", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 20, name: "Small" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "20px" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 28, name: "Default" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "28px (default)" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 28, name: "Default" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "28px (default)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Medium" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "40px" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Medium" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "40px" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 56, name: "Large" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "56px" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 56, name: "Large" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "56px" })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "size?: number \u2014 diameter in pixels (default 28)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "name?: string \u2014 team name (used for placeholder initial + color hash)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "logoUrl?: string \u2014 URL of team logo image" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "size?: number \u2014 diameter in pixels (default 28)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "name?: string \u2014 team name (used for placeholder initial + color hash)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "logoUrl?: string \u2014 URL of team logo image" })
             ] }) })
           ] }),
-          sec === "avatar" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PAvatar" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Circular avatar showing user initials on a gray background. Used in profile sections and headers." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Default", desc: "Initials on gray500 circle", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAvatar, { initials: "BR", size: 40 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAvatar, { initials: "YL", size: 40 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAvatar, { initials: "JD", size: 40 })
+          sec === "avatar" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PAvatar" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Circular avatar showing user initials on a gray background. Used in profile sections and headers." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Default", desc: "Initials on gray500 circle", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAvatar, { initials: "BR", size: 40 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAvatar, { initials: "YL", size: 40 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAvatar, { initials: "JD", size: 40 })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Sizes", desc: "size prop controls diameter", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAvatar, { initials: "SM", size: 24 }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "24px" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Sizes", desc: "size prop controls diameter", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAvatar, { initials: "SM", size: 24 }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "24px" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAvatar, { initials: "MD", size: 40 }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "40px (default)" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAvatar, { initials: "MD", size: 40 }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "40px (default)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAvatar, { initials: "LG", size: 56 }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "56px" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAvatar, { initials: "LG", size: 56 }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "56px" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAvatar, { initials: "XL", size: 72 }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "72px" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAvatar, { initials: "XL", size: 72 }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "72px" })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'initials?: string \u2014 1\u20132 letter initials to display (default "BR")' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "size?: number \u2014 diameter in pixels (default 40)" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'initials?: string \u2014 1\u20132 letter initials to display (default "BR")' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "size?: number \u2014 diameter in pixels (default 40)" })
             ] }) })
           ] }),
-          sec === "playerphoto" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PPlayerPhoto" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Circular player photo with gray User-silhouette placeholder fallback. When photoUrl is provided and loads successfully, it renders the photo; otherwise shows the placeholder." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Placeholder (no photo)", desc: "Gray circle with User silhouette icon", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerPhoto, { size: 36, name: "J. Davis" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "36px" })
+          sec === "playerphoto" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PPlayerPhoto" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Circular player photo with gray User-silhouette placeholder fallback. When photoUrl is provided and loads successfully, it renders the photo; otherwise shows the placeholder." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Placeholder (no photo)", desc: "Gray circle with User silhouette icon", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerPhoto2, { size: 36, name: "J. Davis" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "36px" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerPhoto, { size: 48, name: "B. Rogers" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "48px (default)" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerPhoto2, { size: 48, name: "B. Rogers" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "48px (default)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerPhoto, { size: 64, name: "M. Chen" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "64px" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.xs }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerPhoto2, { size: 64, name: "M. Chen" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "64px" })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "With photo URL", desc: "Renders server-provided player photo", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerPhoto, { size: 48, name: "Player", photoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" fill="#8B5CF6"/><text x="50%" y="54%" font-family="sans-serif" font-size="32" fill="white" text-anchor="middle" dominant-baseline="middle">MC</text></svg>')}` }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerPhoto, { size: 48, name: "Player", photoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" fill="#D0142C"/><text x="50%" y="54%" font-family="sans-serif" font-size="32" fill="white" text-anchor="middle" dominant-baseline="middle">JR</text></svg>')}` })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "With photo URL", desc: "Renders server-provided player photo", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerPhoto2, { size: 48, name: "Player", photoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" fill="#8B5CF6"/><text x="50%" y="54%" font-family="sans-serif" font-size="32" fill="white" text-anchor="middle" dominant-baseline="middle">MC</text></svg>')}` }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerPhoto2, { size: 48, name: "Player", photoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" fill="#D0142C"/><text x="50%" y="54%" font-family="sans-serif" font-size="32" fill="white" text-anchor="middle" dominant-baseline="middle">JR</text></svg>')}` })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Broken URL fallback", desc: "Falls back to placeholder when image fails to load", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerPhoto, { size: 48, name: "Error", photoUrl: "https://broken-url.invalid/photo.jpg" }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "size?: number \u2014 diameter in pixels (default 48)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "name?: string \u2014 player name (for alt text)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "photoUrl?: string \u2014 URL of player photo image" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Broken URL fallback", desc: "Falls back to placeholder when image fails to load", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerPhoto2, { size: 48, name: "Error", photoUrl: "https://broken-url.invalid/photo.jpg" }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "size?: number \u2014 diameter in pixels (default 48)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "name?: string \u2014 player name (for alt text)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "photoUrl?: string \u2014 URL of player photo image" })
             ] }) })
           ] }),
-          sec === "playernumberbadge" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PlayerNumberBadge" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Colored circle displaying a player's jersey number. When a photo URL is provided from the server it renders the player photo instead. Used in MyFollowingList player rows and anywhere a player avatar is needed." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Default (team color)", desc: "Primary-colored circle with jersey number", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 1 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 23 }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 7 })
+          sec === "playernumberbadge" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PlayerNumberBadge" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Colored circle displaying a player's jersey number. When a photo URL is provided from the server it renders the player photo instead. Used in MyFollowingList player rows and anywhere a player avatar is needed." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Default (team color)", desc: "Primary-colored circle with jersey number", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 1 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 23 }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 7 })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Custom team colors", desc: "Each team has a different brand color", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 10, teamColor: "#D0142C" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 5, teamColor: "#116DFF" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 33, teamColor: "#22C55E" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 8, teamColor: "#E7A610" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 12, teamColor: "#8B5CF6" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Custom team colors", desc: "Each team has a different brand color", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 10, teamColor: "#D0142C" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 5, teamColor: "#116DFF" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 33, teamColor: "#22C55E" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 8, teamColor: "#E7A610" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 12, teamColor: "#8B5CF6" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Light team colors", desc: "Text auto-switches to dark on light backgrounds", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 4, teamColor: "#FDE68A" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 99, teamColor: "#BBF7D0" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 11, teamColor: "#E0F2FE" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Light team colors", desc: "Text auto-switches to dark on light backgrounds", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 4, teamColor: "#FDE68A" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 99, teamColor: "#BBF7D0" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 11, teamColor: "#E0F2FE" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Sizes", desc: "size prop controls diameter", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 7, size: 28, teamColor: "#D0142C" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 7, size: 40, teamColor: "#D0142C" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 7, size: 56, teamColor: "#D0142C" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Sizes", desc: "size prop controls diameter", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 7, size: 28, teamColor: "#D0142C" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 7, size: 40, teamColor: "#D0142C" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 7, size: 56, teamColor: "#D0142C" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "With photo URL", desc: "photoUrl replaces the number circle with a server image. Falls back to number circle on error.", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 23, size: 40, photoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#116DFF"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">MC</text></svg>')}` }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 10, size: 40, photoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#D0142C"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">JR</text></svg>')}` })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "With photo URL", desc: "photoUrl replaces the number circle with a server image. Falls back to number circle on error.", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 23, size: 40, photoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#116DFF"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">MC</text></svg>')}` }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 10, size: 40, photoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#D0142C"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">JR</text></svg>')}` })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Broken URL fallback", desc: "When photoUrl fails to load, gracefully falls back to the number circle placeholder", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 5, size: 40, teamColor: "#8B5CF6", photoUrl: "https://broken-url.invalid/photo.jpg" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 99, size: 40, teamColor: "#22C55E", photoUrl: "https://broken-url.invalid/photo2.jpg" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Broken URL fallback", desc: "When photoUrl fails to load, gracefully falls back to the number circle placeholder", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.md, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 5, size: 40, teamColor: "#8B5CF6", photoUrl: "https://broken-url.invalid/photo.jpg" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 99, size: 40, teamColor: "#22C55E", photoUrl: "https://broken-url.invalid/photo2.jpg" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "number: number \u2014 jersey number displayed in the circle" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "size?: number \u2014 diameter in px (default 40)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "teamColor?: string \u2014 background color (default primary). Text auto-adjusts for contrast" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "photoUrl?: string \u2014 server-provided player photo. When set, replaces the number circle" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "number: number \u2014 jersey number displayed in the circle" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "size?: number \u2014 diameter in px (default 40)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "teamColor?: string \u2014 background color (default primary). Text auto-adjusts for contrast" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "photoUrl?: string \u2014 server-provided player photo. When set, replaces the number circle" })
             ] }) })
           ] }),
-          sec === "bellicon" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PBellIcon" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Bell icon with optional notification count badge. When count is 0 or omitted, no badge is shown. Used in AppHeader." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "States", desc: "No badge vs. badge with count \u2014 fixed 24px, used in AppHeader", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.xl, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBellIcon, {}),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "count=0 (no badge)" })
+          sec === "bellicon" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PBellIcon" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Bell icon with optional notification count badge. When count is 0 or omitted, no badge is shown. Used in AppHeader." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "States", desc: "No badge vs. badge with count \u2014 fixed 24px, used in AppHeader", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.xl, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBellIcon2, {}),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "count=0 (no badge)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBellIcon, { count: 3 }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "count=3" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBellIcon2, { count: 3 }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "count=3" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBellIcon, { count: 99 }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "count=99" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBellIcon2, { count: 99 }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontSize: T.typography.sizes.micro, color: c.gray400 }, children: "count=99" })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PropsBlock, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "count?: number \u2014 notification count, 0 hides badge (default 0)" }) }) })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PropsBlock2, { children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "count?: number \u2014 notification count, 0 hides badge (default 0)" }) }) })
           ] }),
-          sec === "sectionheader" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PSectionHeader" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Section heading with optional "See all" link button. Used at the top of content sections on the homepage and team pages.' }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Without See All", desc: "Title only \u2014 no trailing action", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSectionHeader, { title: "Latest Videos" }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "With See All", desc: "seeAll={true} shows a trailing link button", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSectionHeader, { title: "Latest Videos", seeAll: true, onClick: () => {
+          sec === "sectionheader" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PSectionHeader" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Section heading with optional "See all" link button. Used at the top of content sections on the homepage and team pages.' }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Without See All", desc: "Title only \u2014 no trailing action", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSectionHeader2, { title: "Latest Videos" }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "With See All", desc: "seeAll={true} shows a trailing link button", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSectionHeader2, { title: "Latest Videos", seeAll: true, onClick: () => {
             } }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Custom title size", desc: "titleSize prop overrides default base (16px)", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSectionHeader, { title: "Small Title", titleSize: T.typography.sizes.xs, seeAll: true }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSectionHeader, { title: "Default Title", seeAll: true }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSectionHeader, { title: "Large Title", titleSize: T.typography.sizes.xl, seeAll: true })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Custom title size", desc: "titleSize prop overrides default base (16px)", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSectionHeader2, { title: "Small Title", titleSize: T.typography.sizes.xs, seeAll: true }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSectionHeader2, { title: "Default Title", seeAll: true }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSectionHeader2, { title: "Large Title", titleSize: T.typography.sizes.xl, seeAll: true })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "title: string \u2014 section heading text (required)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'seeAll?: boolean \u2014 show trailing "See all >" link (default false)' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onClick?: () => void \u2014 handler for See all click" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "titleSize?: number \u2014 override font size" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "title: string \u2014 section heading text (required)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'seeAll?: boolean \u2014 show trailing "See all >" link (default false)' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onClick?: () => void \u2014 handler for See all click" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "titleSize?: number \u2014 override font size" })
             ] }) })
           ] }),
-          sec === "seealllink" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PSeeAllLink" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Standalone "See all" link with chevron. Used below grid sections to navigate to full lists.' }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Default", desc: "Blue link text with right chevron", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSeeAllLink, { onClick: () => {
+          sec === "seealllink" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PSeeAllLink" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Standalone "See all" link with chevron. Used below grid sections to navigate to full lists.' }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Default", desc: "Blue link text with right chevron", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "flex", justifyContent: "center" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSeeAllLink2, { onClick: () => {
             } }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Custom label", desc: "label prop overrides default text", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.md }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSeeAllLink, { label: "View all games", onClick: () => {
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Custom label", desc: "label prop overrides default text", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.md }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSeeAllLink2, { label: "View all games", onClick: () => {
               } }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSeeAllLink, { label: "More highlights", onClick: () => {
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSeeAllLink2, { label: "More highlights", onClick: () => {
               } }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSeeAllLink, { label: "Browse teams", onClick: () => {
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSeeAllLink2, { label: "Browse teams", onClick: () => {
               } })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'label?: string \u2014 link text (default "See all")' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onClick?: () => void \u2014 click handler" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'label?: string \u2014 link text (default "See all")' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onClick?: () => void \u2014 click handler" })
             ] }) })
           ] }),
-          sec === "followingrow" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "FollowingRow" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Reusable list-item row with avatar, title, optional subtitle, and trailing action slot. Used in MyFollowingList for both team and player rows. Accepts any avatar component (PTeamLogo, PPlayerNumberBadge, PPlayerPhoto) and any action element (PBtn, icon, etc.)." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Team row", desc: "PTeamLogo avatar + division subtitle + Unfollow action", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              PFollowingRow,
+          sec === "followingrow" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "FollowingRow" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Reusable list-item row with avatar, title, optional subtitle, and trailing action slot. Used in MyFollowingList for both team and player rows. Accepts any avatar component (PTeamLogo, PPlayerNumberBadge, PPlayerPhoto) and any action element (PBtn, icon, etc.)." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Team row", desc: "PTeamLogo avatar + division subtitle + Unfollow action", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+              PFollowingRow2,
               {
-                avatar: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Riverside Mustangs" }),
+                avatar: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Riverside Mustangs" }),
                 title: "Riverside Mustangs",
                 subtitle: "PBA Varsity Division",
-                action: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, style: { color: c.errorRed }, children: "Unfollow" })
+                action: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, style: { color: c.errorRed }, children: "Unfollow" })
               }
             ) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Player row", desc: "PPlayerNumberBadge avatar + player info + Unfollow action", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-              PFollowingRow,
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Player row", desc: "PPlayerNumberBadge avatar + player info + Unfollow action", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+              PFollowingRow2,
               {
-                avatar: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 1, teamColor: c.primary }),
+                avatar: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 1, teamColor: c.primary }),
                 title: "#1 \u2014 Marcus Caldwell",
-                action: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, style: { color: c.errorRed }, children: "Unfollow" })
+                action: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, style: { color: c.errorRed }, children: "Unfollow" })
               }
             ) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "With photo avatars", desc: "Server-provided images replace placeholders", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 390 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                PFollowingRow,
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "With photo avatars", desc: "Server-provided images replace placeholders", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { maxWidth: 390 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+                PFollowingRow2,
                 {
-                  avatar: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Riverside", logoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="8" fill="#D0142C"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">RM</text></svg>')}` }),
+                  avatar: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Riverside", logoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="8" fill="#D0142C"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">RM</text></svg>')}` }),
                   title: "Riverside Mustangs",
                   subtitle: "PBA Varsity Division",
-                  action: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, style: { color: c.errorRed }, children: "Unfollow" })
+                  action: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, style: { color: c.errorRed }, children: "Unfollow" })
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                PFollowingRow,
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+                PFollowingRow2,
                 {
-                  avatar: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PPlayerNumberBadge, { number: 23, photoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#116DFF"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">MC</text></svg>')}` }),
+                  avatar: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PPlayerNumberBadge, { number: 23, photoUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#116DFF"/><text x="50%" y="54%" font-family="sans-serif" font-size="28" fill="white" text-anchor="middle" dominant-baseline="middle">MC</text></svg>')}` }),
                   title: "#23 \u2014 Marcus Caldwell",
-                  action: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, style: { color: c.errorRed }, children: "Unfollow" })
+                  action: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBtn, { variant: "social", size: "sm", fullWidth: false, style: { color: c.errorRed }, children: "Unfollow" })
                 }
               )
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "No border", desc: "borderBottom={false} for the last item in a list", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PFollowingRow, { avatar: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamLogo, { size: 40, name: "Eagles" }), title: "Springfield Eagles", subtitle: "Division B", borderBottom: false }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "avatar: ReactNode \u2014 any avatar component (PTeamLogo, PPlayerNumberBadge, PPlayerPhoto)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "title: string \u2014 primary text (team name or player info)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "subtitle?: string \u2014 secondary text (division, position, etc.)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "action?: ReactNode \u2014 trailing action slot (PBtn, icon, custom element)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "borderBottom?: boolean \u2014 show bottom border separator (default true)" })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "No border", desc: "borderBottom={false} for the last item in a list", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PFollowingRow2, { avatar: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamLogo2, { size: 40, name: "Eagles" }), title: "Springfield Eagles", subtitle: "Division B", borderBottom: false }) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "avatar: ReactNode \u2014 any avatar component (PTeamLogo, PPlayerNumberBadge, PPlayerPhoto)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "title: string \u2014 primary text (team name or player info)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "subtitle?: string \u2014 secondary text (division, position, etc.)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "action?: ReactNode \u2014 trailing action slot (PBtn, icon, custom element)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "borderBottom?: boolean \u2014 show bottom border separator (default true)" })
             ] }) })
           ] }),
-          sec === "searchbar" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SearchBarShowcase, {}),
-          sec === "backbar" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "BackBar" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Reusable "\u2190 Back" navigation bar with optional share action. Used in PAppHeader (back variant) and AthleteProfileCard. Standardizes the back+share pattern across all sub-pages.' }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Back only", desc: "Default \u2014 just a back button, no share", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBackBar, {}) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Back + Share", desc: "showShare={true} \u2014 share icon appears on the right", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBackBar, { showShare: true }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Custom label", desc: "label prop changes the back button text", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBackBar, { label: "All Games", showShare: true }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'label?: string \u2014 back button text (default "Back")' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "showShare?: boolean \u2014 show Share2 icon on the right (default false)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onBack?: () => void \u2014 back button handler" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onShare?: () => void \u2014 share button handler" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'padding?: string \u2014 CSS padding (default "12px 16px")' })
+          sec === "searchbar" && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(SearchBarShowcase, {}),
+          sec === "backbar" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "BackBar" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Reusable "\u2190 Back" navigation bar with optional share action. Used in PAppHeader (back variant) and AthleteProfileCard. Standardizes the back+share pattern across all sub-pages.' }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Back only", desc: "Default \u2014 just a back button, no share", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBackBar2, {}) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Back + Share", desc: "showShare={true} \u2014 share icon appears on the right", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBackBar2, { showShare: true }) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Custom label", desc: "label prop changes the back button text", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBackBar2, { label: "All Games", showShare: true }) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'label?: string \u2014 back button text (default "Back")' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "showShare?: boolean \u2014 show Share2 icon on the right (default false)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onBack?: () => void \u2014 back button handler" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onShare?: () => void \u2014 share button handler" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'padding?: string \u2014 CSS padding (default "12px 16px")' })
             ] }) })
           ] }),
-          sec === "accordion" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Accordion" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Reusable collapsible section component. Click a header to expand/collapse its content. Used by CompetitionFollowList and SideMenu internally. Supports single or multiple open sections." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Single open (default)", desc: "Only one section open at a time \u2014 clicking another closes the previous", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden", padding: `0 ${T.spacing.lg}px` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAccordion, { items: [
-              { id: "faq1", header: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "What is Pixellot?" }), content: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: "Pixellot provides AI-powered sports video production and streaming for teams at every level." }) },
-              { id: "faq2", header: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "How do I follow a team?" }), content: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: 'Tap any team card and select "Follow" to add it to your feed.' }) },
-              { id: "faq3", header: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Can I watch on mobile?" }), content: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: "Yes \u2014 the OTT app works on iOS, Android, and desktop browsers." }) }
+          sec === "accordion" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Accordion" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Reusable collapsible section component. Click a header to expand/collapse its content. Used by CompetitionFollowList and SideMenu internally. Supports single or multiple open sections." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Single open (default)", desc: "Only one section open at a time \u2014 clicking another closes the previous", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden", padding: `0 ${T.spacing.lg}px` }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAccordion2, { items: [
+              { id: "faq1", header: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "What is Pixellot?" }), content: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: "Pixellot provides AI-powered sports video production and streaming for teams at every level." }) },
+              { id: "faq2", header: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "How do I follow a team?" }), content: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: 'Tap any team card and select "Follow" to add it to your feed.' }) },
+              { id: "faq3", header: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Can I watch on mobile?" }), content: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: "Yes \u2014 the OTT app works on iOS, Android, and desktop browsers." }) }
             ] }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Multiple open", desc: "allowMultiple={true} \u2014 several sections can be open at once", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden", padding: `0 ${T.spacing.lg}px` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAccordion, { allowMultiple: true, items: [
-              { id: "s1", header: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Section A" }), content: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: "Content for section A. This stays open when you open B or C." }) },
-              { id: "s2", header: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Section B" }), content: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: "Content for section B." }) },
-              { id: "s3", header: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Section C" }), content: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: "Content for section C." }) }
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Multiple open", desc: "allowMultiple={true} \u2014 several sections can be open at once", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden", padding: `0 ${T.spacing.lg}px` }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAccordion2, { allowMultiple: true, items: [
+              { id: "s1", header: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Section A" }), content: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: "Content for section A. This stays open when you open B or C." }) },
+              { id: "s2", header: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Section B" }), content: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: "Content for section B." }) },
+              { id: "s3", header: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { style: { fontFamily: F, fontSize: T.typography.sizes.base, fontWeight: T.typography.weights.bold, color: c.darkText }, children: "Section C" }), content: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontFamily: F, fontSize: T.typography.sizes.xs, color: c.gray500, margin: 0 }, children: "Content for section C." }) }
             ] }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "items: PAccordionItem[] \u2014 array of ",
                 "{",
                 " id, header: ReactNode, content: ReactNode ",
                 "}"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "allowMultiple?: boolean \u2014 allow multiple sections open at once (default false)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "defaultOpen?: string \u2014 id of section to open by default" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "headerStyle?: CSSProperties \u2014 extra styles for header buttons" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "activeHeaderStyle?: CSSProperties \u2014 extra styles applied to header when section is expanded (e.g., highlight bg)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "contentStyle?: CSSProperties \u2014 extra styles for content wrappers" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "chevronSize?: number \u2014 size of the chevron icon (default 18)" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "allowMultiple?: boolean \u2014 allow multiple sections open at once (default false)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "defaultOpen?: string \u2014 id of section to open by default" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "headerStyle?: CSSProperties \u2014 extra styles for header buttons" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "activeHeaderStyle?: CSSProperties \u2014 extra styles applied to header when section is expanded (e.g., highlight bg)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "contentStyle?: CSSProperties \u2014 extra styles for content wrappers" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "chevronSize?: number \u2014 size of the chevron icon (default 18)" })
             ] }) })
           ] }),
-          sec === "appheader" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppHeader" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Top app bar used across all pages. The main header (logo + org name + icons) is always present. On sub-pages, variant "back" adds a "\u2039 Back" sub-bar below the header with optional share icon. Logo comes from server \u2014 changes per client.' }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Home variant", desc: "Default header \u2014 logoUrl replaces placeholder at runtime", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAppHeader, { variant: "home", orgName: "PBA", notifCount: 1 }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Back variant", desc: "Sub-page: main header stays, \u2039 Back sub-bar + share icon appear below", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAppHeader, { variant: "back", pageTitle: "All Games", notifCount: 0, showShare: true }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'variant: "home" | "back" \u2014 home shows header only, back adds \u2039 Back sub-bar below header' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "orgName: string \u2014 organization display name (always shown in header)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "logoUrl?: string \u2014 server-provided logo image URL (fallback: colored square)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "pageTitle: string \u2014 currently unused, reserved for future breadcrumb label" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "showSearch / showNotifications / showMenu: boolean \u2014 toggle right-side icons" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "showShare: boolean \u2014 show share icon on the back sub-bar (default false)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "notifCount: number \u2014 red badge on notification bell (0 = no badge)" })
+          sec === "appheader" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AppHeader" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Top app bar used across all pages. The main header (logo + org name + icons) is always present. On sub-pages, variant "back" adds a "\u2039 Back" sub-bar below the header with optional share icon. Logo comes from server \u2014 changes per client.' }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Home variant", desc: "Default header \u2014 logoUrl replaces placeholder at runtime", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAppHeader, { variant: "home", orgName: "PBA", notifCount: 1 }) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Back variant", desc: "Sub-page: main header stays, \u2039 Back sub-bar + share icon appear below", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAppHeader, { variant: "back", pageTitle: "All Games", notifCount: 0, showShare: true }) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'variant: "home" | "back" \u2014 home shows header only, back adds \u2039 Back sub-bar below header' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "orgName: string \u2014 organization display name (always shown in header)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "logoUrl?: string \u2014 server-provided logo image URL (fallback: colored square)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "pageTitle: string \u2014 currently unused, reserved for future breadcrumb label" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "showSearch / showNotifications / showMenu: boolean \u2014 toggle right-side icons" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "showShare: boolean \u2014 show share icon on the back sub-bar (default false)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "notifCount: number \u2014 red badge on notification bell (0 = no badge)" })
             ] }) })
           ] }),
-          sec === "bottomtabbar" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "BottomTabBar" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Persistent bottom navigation bar present on all main pages. 4 tabs: Games (trophy), Saved (bookmark), Following (heart), Shop (bag). Active tab shows filled icon + bold label in accent color." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Interactive \u2014 click to switch tabs", desc: "Full-width bottom tab bar with active state", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PBottomTabBar, {}) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          sec === "bottomtabbar" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "BottomTabBar" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Persistent bottom navigation bar present on all main pages. 4 tabs: Games (trophy), Saved (bookmark), Following (heart), Shop (bag). Active tab shows filled icon + bold label in accent color." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Interactive \u2014 click to switch tabs", desc: "Full-width bottom tab bar with active state", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PBottomTabBar, {}) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "tabs?: BottomTab[] \u2014 array of ",
                 "{",
                 " id, label, icon ",
                 "}",
                 " (defaults to Games/Saved/Following/Shop)"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "active?: string \u2014 currently active tab id" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onSelect?: (id) => void \u2014 callback when tab is tapped" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "accentColor?: string \u2014 override active tab color (default: primary)" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "active?: string \u2014 currently active tab id" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onSelect?: (id) => void \u2014 callback when tab is tapped" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "accentColor?: string \u2014 override active tab color (default: primary)" })
             ] }) })
           ] }),
-          sec === "sidemenu" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "SideMenu" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Sales-style hamburger menu that slides from the right. Shows org logo + name, expandable Divisions with sub-items, nav items with icons, Language selector, and Log Out. Logo comes from server per client." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Side Menu (Full Preview)", desc: "Dark backdrop + right-side panel with expandable divisions, nav items, logout", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSideMenu, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'orgName: string \u2014 org display name (e.g., "PBA")' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'orgSubtitle?: string \u2014 subtitle (e.g., "Basketball Association")' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "logoUrl?: string \u2014 server-provided org logo URL" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "items?: SideMenuItem[] \u2014 menu items with optional subItems for accordion" })
+          sec === "sidemenu" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "SideMenu" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Sales-style hamburger menu that slides from the right. Shows org logo + name, expandable Divisions with sub-items, nav items with icons, Language selector, and Log Out. Logo comes from server per client." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Side Menu (Full Preview)", desc: "Dark backdrop + right-side panel with expandable divisions, nav items, logout", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSideMenu, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'orgName: string \u2014 org display name (e.g., "PBA")' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'orgSubtitle?: string \u2014 subtitle (e.g., "Basketball Association")' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "logoUrl?: string \u2014 server-provided org logo URL" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "items?: SideMenuItem[] \u2014 menu items with optional subItems for accordion" })
             ] }) })
           ] }),
-          sec === "teamfollowcard" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "TeamFollowCard" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Team card from the "Manage following" page. 3-column grid layout with centered logo, team name (2-line clamp), and "Following"/"Follow" status text. Matches Figma spec: W:114 Fill, border-radius 12.' }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Card states", desc: "Click any card to toggle follow state \u2014 Following (gray text) vs Follow (blue text)", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamFollowCardPreview, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Manage Following \u2014 full layout", desc: "Sectioned flex rows with 'Following' + category headers, matching Figma Manage Following page (gap:8 between cards, gap:24 between sections)", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 358 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PTeamFollowGrid, {}) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props \u2014 PTeamFollowCard", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "teamName: string \u2014 team display name (2-line clamp)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'followed: boolean \u2014 true shows "Following" (gray), false shows "Follow" (blue)' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onClick: () => void \u2014 card tap handler" })
+          sec === "teamfollowcard" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "TeamFollowCard" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Team card from the "Manage following" page. 3-column grid layout with centered logo, team name (2-line clamp), and "Following"/"Follow" status text. Matches Figma spec: W:114 Fill, border-radius 12.' }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Card states", desc: "Click any card to toggle follow state \u2014 Following (gray text) vs Follow (blue text)", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamFollowCardPreview, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Manage Following \u2014 full layout", desc: "Sectioned flex rows with 'Following' + category headers, matching Figma Manage Following page (gap:8 between cards, gap:24 between sections)", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 358 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PTeamFollowGrid, {}) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props \u2014 PTeamFollowCard", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "teamName: string \u2014 team display name (2-line clamp)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'followed: boolean \u2014 true shows "Following" (gray), false shows "Follow" (blue)' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onClick: () => void \u2014 card tap handler" })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props \u2014 PTeamFollowGrid", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props \u2014 PTeamFollowGrid", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "sections: ",
                 "{",
                 " title, teams: ",
@@ -19380,16 +18674,16 @@ withDefaults(props, {
                 "}",
                 "[] \u2014 grouped team sections"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onClick: (name) => void \u2014 callback when a card is tapped" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { marginTop: T.spacing.sm, fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "Figma: flex row per section, gap:8px between cards, gap:24px between sections" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onClick: (name) => void \u2014 callback when a card is tapped" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { marginTop: T.spacing.sm, fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "Figma: flex row per section, gap:8px between cards, gap:24px between sections" })
             ] }) })
           ] }),
-          sec === "competitionfollowlist" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "CompetitionFollowList" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Onboarding flow component: collapsible list of competitions/leagues, each expanding to a 3-column team grid with Follow/Following toggle. Search bar at top, Continue button with follow count at bottom." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Interactive \u2014 expand a league and follow teams", desc: "Click a league to expand its team grid, click teams to follow/unfollow", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PCompetitionFollowList, {}) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          sec === "competitionfollowlist" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "CompetitionFollowList" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Onboarding flow component: collapsible list of competitions/leagues, each expanding to a 3-column team grid with Follow/Following toggle. Search bar at top, Continue button with follow count at bottom." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Interactive \u2014 expand a league and follow teams", desc: "Click a league to expand its team grid, click teams to follow/unfollow", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PCompetitionFollowList, {}) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "competitions?: Competition[] \u2014 list of ",
                 "{",
                 " name, teamCount, teams: ",
@@ -19399,13 +18693,13 @@ withDefaults(props, {
                 "[] ",
                 "}"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onToggleFollow?: (compIdx, teamIdx) => void \u2014 callback when team is toggled" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onToggleFollow?: (compIdx, teamIdx) => void \u2014 callback when team is toggled" })
             ] }) })
           ] }),
-          sec === "myfollowinglist" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "MyFollowingList" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Manage Following page: shows followed teams and players with Unfollow buttons and "+ Add" controls. Teams show logo + name + division. Players show jersey number circle + name.' }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Interactive \u2014 click Unfollow to remove", desc: "Teams and Players sections with add/unfollow controls", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          sec === "myfollowinglist" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "MyFollowingList" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Manage Following page: shows followed teams and players with Unfollow buttons and "+ Add" controls. Teams show logo + name + division. Players show jersey number circle + name.' }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Interactive \u2014 click Unfollow to remove", desc: "Teams and Players sections with add/unfollow controls", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
               PMyFollowingList,
               {
                 teams: [
@@ -19419,362 +18713,369 @@ withDefaults(props, {
               }
             ) })
           ] }),
-          sec === "followedplayers" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Home \u2014 Following Strip" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: [
+          sec === "followedplayers" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Home \u2014 Following Strip" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: [
               "Single horizontal scrollable row at the ",
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "top of the Home page" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("strong", { children: "top of the Home page" }),
               ", above the banner. Shows teams and players the user follows \u2014 all mixed in one row. Team chips show the team logo circle. Player chips show a photo circle (claimed) or a colored circle with jersey number (unclaimed). Tapping navigates to TeamPage or PlayerProfile."
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "PHomeFollowingSection", desc: "Mixed team + player circular chips \u2014 2 teams, 1 claimed player (photo), 2 unclaimed players (number)", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { background: c.white, borderRadius: T.radii.card, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PHomeFollowingSection, {}) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Teams only", desc: "Only followed teams, no players yet", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { background: c.white, borderRadius: T.radii.card, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PHomeFollowingSection, { items: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "PHomeFollowingSection", desc: "Mixed team + player circular chips \u2014 2 teams, 1 claimed player (photo), 2 unclaimed players (number)", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { background: c.white, borderRadius: T.radii.card, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PHomeFollowingSection, {}) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Teams only", desc: "Only followed teams, no players yet", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { background: c.white, borderRadius: T.radii.card, overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PHomeFollowingSection, { items: [
               { type: "team", name: "S.D. Spartans Men" },
               { type: "team", name: "Maccabi Kiryat Gat" }
             ] }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props \u2014 PHomeFollowingSection", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "items: HomeFollowingItem[] \u2014 ordered list of teams + players to display" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props \u2014 PHomeFollowingSection", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "items: HomeFollowingItem[] \u2014 ordered list of teams + players to display" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "  { type: 'team', name: string, logoUrl?: string }",
                 " \u2014 circular logo from server (img); placeholder shown when no URL"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "  { type: 'player', number, teamColor?, photoUrl?, claimed? }",
                 " \u2014 circle chip"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onTeamClick: (name) => void \u2014 navigate to TeamPage" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "onPlayerClick: (number) => void \u2014 navigate to PlayerProfile" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onTeamClick: (name) => void \u2014 navigate to TeamPage" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "onPlayerClick: (number) => void \u2014 navigate to PlayerProfile" })
             ] }) })
           ] }),
-          sec === "footer" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Footer" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Page footer with org logo, navigation links (About us, FAQ, Privacy), social media icons (Facebook, X, Instagram, YouTube, TikTok, Email), copyright text, and "Powered by Pixellot" branding.' }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Default Footer", desc: "Full footer with all sections", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.badge, overflow: "hidden", border: `1px solid ${c.gray200}` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PFooter, {}) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Custom org + no Powered By", desc: "Footer with custom org name and hidden branding", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.badge, overflow: "hidden", border: `1px solid ${c.gray200}` }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PFooter, { orgName: "Spartans Athletics", showPoweredBy: false, links: [{ label: "Home" }, { label: "Teams" }, { label: "Contact" }] }) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'orgName: string \u2014 org name for copyright ("PBA")' }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "logoUrl?: string \u2014 server-provided logo URL" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          sec === "footer" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Footer" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: 'Page footer with org logo, navigation links (About us, FAQ, Privacy), social media icons (Facebook, X, Instagram, YouTube, TikTok, Email), copyright text, and "Powered by Pixellot" branding.' }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Default Footer", desc: "Full footer with all sections", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.badge, overflow: "hidden", border: `1px solid ${c.gray200}` }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PFooter, {}) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Custom org + no Powered By", desc: "Footer with custom org name and hidden branding", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 390, borderRadius: T.radii.badge, overflow: "hidden", border: `1px solid ${c.gray200}` }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PFooter, { orgName: "Spartans Athletics", showPoweredBy: false, links: [{ label: "Home" }, { label: "Teams" }, { label: "Contact" }] }) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Props", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'orgName: string \u2014 org name for copyright ("PBA")' }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "logoUrl?: string \u2014 server-provided logo URL" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "links?: ",
                 "{",
                 " label, href? ",
                 "}",
                 "[] \u2014 nav link items"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: 'showPoweredBy: boolean (true) \u2014 show "Powered by Pixellot" line' })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: 'showPoweredBy: boolean (true) \u2014 show "Powered by Pixellot" line' })
             ] }) })
           ] }),
-          sec === "jersey" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "JerseyItem" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Jersey with number", desc: "SVG basketball jersey \u2014 tap to select. Color is team-configurable. Selected shows green stroke and checkmark.", code: C.jerseyItem, codeTitle: "JerseyItem.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg2, alignItems: "center", flexWrap: "wrap" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PJersey, { number: 7 }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Default (red)" })
+          sec === "jersey" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "JerseyItem" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Jersey with number", desc: "SVG basketball jersey \u2014 tap to select. Color is team-configurable. Selected shows green stroke and checkmark.", code: C.jerseyItem, codeTitle: "JerseyItem.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: T.spacing.lg2, alignItems: "center", flexWrap: "wrap" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PJersey, { number: 7 }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Default (red)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PJersey, { number: 23, selected: true, onClick: () => {
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PJersey, { number: 23, selected: true, onClick: () => {
                 } }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Selected (green stroke)" })
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Selected (green stroke)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PJersey, { number: 10, color: "#116DFF" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Custom (blue)" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PJersey, { number: 10, color: "#116DFF" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Custom (blue)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PJersey, { number: 5, color: "#E8332B" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Custom (accent)" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PJersey, { number: 5, color: "#E8332B" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Custom (accent)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PJersey, { number: 33, color: "#1A3B8A" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Custom (navy)" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PJersey, { number: 33, color: "#1A3B8A" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Custom (navy)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PJersey, { number: 11, color: "#FFFFFF" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "White (auto dark text)" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PJersey, { number: 11, color: "#FFFFFF" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "White (auto dark text)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PJersey, { number: 8, color: "#FFE000" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Yellow (auto dark text)" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PJersey, { number: 8, color: "#FFE000" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Yellow (auto dark text)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { textAlign: "center" }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PJersey, { number: 3, color: "#90EE90" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Light green (auto dark text)" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { textAlign: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PJersey, { number: 3, color: "#90EE90" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginTop: T.spacing.xs }, children: "Light green (auto dark text)" })
               ] })
             ] }) })
           ] }),
-          sec === "jerseygrid" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Card, { title: "JerseyGrid", desc: "Flex-wrap grid of selectable jerseys with 24px gap, space-between", code: C.jerseyGrid, codeTitle: "JerseyGrid.vue", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 398, display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: T.spacing.xl, padding: `0 ${T.spacing.xs}px` }, children: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PJersey, { number: n, selected: selJerseys.includes(n), onClick: () => toggleJ(n) }, n)) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginTop: T.spacing.md, fontSize: T.typography.sizes.caption, color: c.gray400 }, children: [
+          sec === "jerseygrid" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Card, { title: "JerseyGrid", desc: "Flex-wrap grid of selectable jerseys with 24px gap, space-between", code: C.jerseyGrid, codeTitle: "JerseyGrid.vue", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 398, display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: T.spacing.xl, padding: `0 ${T.spacing.xs}px` }, children: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PJersey, { number: n, selected: selJerseys.includes(n), onClick: () => toggleJ(n) }, n)) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { marginTop: T.spacing.md, fontSize: T.typography.sizes.caption, color: c.gray400 }, children: [
               "Selected: [",
               selJerseys.join(", "),
               "] \u2014 click jerseys to toggle"
             ] })
           ] }),
-          sec === "auth" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AuthPage (Live Preview)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PAuthPagePreview, { tab, setTab })
+          sec === "auth" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "AuthPage (Live Preview)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PAuthPagePreview, { tab, setTab })
           ] }),
-          sec === "onboarding" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PlayerSelectPage (Live Preview)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Page Code", code: C.onboardingPage, codeTitle: "views/PlayerSelectPage.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: 0 }, children: 'Full onboarding page with jersey selection grid, "See All" expand, and sticky "Finish" footer.' }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(POnboardingPreview, { selJerseys, toggleJ })
+          sec === "onboarding" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "PlayerSelectPage (Live Preview)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Page Code", code: C.onboardingPage, codeTitle: "views/PlayerSelectPage.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: 0 }, children: 'Full onboarding page with jersey selection grid, "See All" expand, and sticky "Finish" footer.' }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(POnboardingPreview, { selJerseys, toggleJ })
           ] }),
-          sec === "emptystate" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "EmptyState" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Reusable empty state with icon, title, subtitle, and optional CTA. 12 built-in presets for every data-dependent section." }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Presets \u2014 with CTA", code: C.emptyState, codeTitle: "EmptyState.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.sm }, children: ["noFollowing", "noPersonal", "noFollowedPlayers", "noTeamsFound", "noClaimedPlayer", "noSearchResults"].filter((k) => EMPTY_PRESETS[k].cta).map((k) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, padding: "6px 10px 0", fontFamily: "monospace" }, children: [
+          sec === "emptystate" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "EmptyState" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Reusable empty state with icon, title, subtitle, and optional CTA. 12 built-in presets for every data-dependent section." }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Presets \u2014 with CTA", code: C.emptyState, codeTitle: "EmptyState.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.sm }, children: ["noFollowing", "noPersonal", "noFollowedPlayers", "noTeamsFound", "noClaimedPlayer", "noSearchResults"].filter((k) => EMPTY_PRESETS[k].cta).map((k) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, padding: "6px 10px 0", fontFamily: "monospace" }, children: [
                 'preset="',
                 k,
                 '"'
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PEmptyState, { preset: k })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PEmptyState, { preset: k })
             ] }, k)) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Presets \u2014 no CTA", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.sm }, children: ["noLiveGames", "noRecentGames", "noNotifications", "noHighlights", "noSavedVideos", "noPlayerStats"].map((k) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, padding: "6px 10px 0", fontFamily: "monospace" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Presets \u2014 no CTA", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.sm }, children: ["noLiveGames", "noRecentGames", "noNotifications", "noHighlights", "noSavedVideos", "noPlayerStats"].map((k) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, padding: "6px 10px 0", fontFamily: "monospace" }, children: [
                 'preset="',
                 k,
                 '"'
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PEmptyState, { preset: k })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PEmptyState, { preset: k })
             ] }, k)) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Where They Go", desc: "Mapping of presets to app screens", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(SpecBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noLiveGames" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Where They Go", desc: "Mapping of presets to app screens", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(SpecBlock, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noLiveGames" }),
                 " \u2192 HomePage Live section"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noFollowing" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noFollowing" }),
                 " \u2192 HomePage Following section"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noRecentGames" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noRecentGames" }),
                 " \u2192 HomePage Recent Games section"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noNotifications" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noNotifications" }),
                 " \u2192 NotificationCenter dropdown"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noHighlights" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noHighlights" }),
                 " \u2192 GameDetail highlights section"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noPersonal" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noPersonal" }),
                 " \u2192 GameDetail personal highlights"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noPlayerStats" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noPlayerStats" }),
                 " \u2192 GameDetail stats tab"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noFollowedPlayers" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noFollowedPlayers" }),
                 " \u2192 GameDetail followed players"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noSavedVideos" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noSavedVideos" }),
                 " \u2192 Profile Saved Videos"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noSearchResults" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noSearchResults" }),
                 " \u2192 Search results page"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noTeamsFound" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noTeamsFound" }),
                 " \u2192 Onboarding team selection"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noClaimedPlayer" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "noClaimedPlayer" }),
                 " \u2192 Profile sidebar claimed section"
               ] })
             ] }) })
           ] }),
-          sec === "errorstate" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "ErrorState" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "6 error variants \u2014 each with contextual title, subtitle, and appropriate CTA" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "All Variants", code: C.errorState, codeTitle: "ErrorState.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.sm }, children: ["generic", "network", "timeout", "video", "data", "auth"].map((v) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, padding: "6px 10px 0", fontFamily: "monospace" }, children: [
+          sec === "errorstate" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "ErrorState" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "6 error variants \u2014 each with contextual title, subtitle, and appropriate CTA" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "All Variants", code: C.errorState, codeTitle: "ErrorState.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.sm }, children: ["generic", "network", "timeout", "video", "data", "auth"].map((v) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { border: `1px solid ${c.gray200}`, borderRadius: T.radii.badge, overflow: "hidden" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { fontSize: T.typography.sizes.mini, color: c.gray400, padding: "6px 10px 0", fontFamily: "monospace" }, children: [
                 'variant="',
                 v,
                 '"'
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PErrorState, { variant: v })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PErrorState, { variant: v })
             ] }, v)) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Where They Go", desc: "Mapping of error variants to app contexts", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(SpecBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "generic" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Where They Go", desc: "Mapping of error variants to app contexts", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(SpecBlock, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "generic" }),
                 " \u2192 Fallback for any unhandled error"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "network" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "network" }),
                 " \u2192 API calls fail due to connectivity"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "timeout" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "timeout" }),
                 " \u2192 Server response too slow"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "video" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "video" }),
                 " \u2192 Video player load failure / still processing"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "data" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "data" }),
                 " \u2192 Stats, highlights, or game data failed to load"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "auth" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "2px 6px", borderRadius: T.radii.sm, fontSize: T.typography.sizes.xxs }, children: "auth" }),
                 " \u2192 Session expired, token invalid"
               ] })
             ] }) })
           ] }),
-          sec === "offlinebanner" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "OfflineBanner" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Persistent top banner shown when the device loses network connectivity" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Preview", code: C.offlineBanner, codeTitle: "OfflineBanner.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 398 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(POfflineBanner, {}) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Anatomy", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(PropsBlock, { variant: "muted", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          sec === "offlinebanner" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "OfflineBanner" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Persistent top banner shown when the device loses network connectivity" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Preview", code: C.offlineBanner, codeTitle: "OfflineBanner.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 398 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(POfflineBanner, {}) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Anatomy", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(PropsBlock2, { variant: "muted", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "Background: ",
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.errorRed, color: c.white, padding: "1px 6px", borderRadius: T.radii.sm, opacity: 0.15 }, children: "#FEF2F2" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.errorRed, color: c.white, padding: "1px 6px", borderRadius: T.radii.sm, opacity: 0.15 }, children: "#FEF2F2" }),
                 " (red-50)"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "Border: ",
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.gray50, padding: "1px 6px", borderRadius: T.radii.sm }, children: "rgba(239,68,68,0.15)" })
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.gray50, padding: "1px 6px", borderRadius: T.radii.sm }, children: "rgba(239,68,68,0.15)" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "Red dot: 8\xD78 circle ",
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { style: { background: c.errorRed, color: c.white, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#EF4444" })
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("code", { style: { background: c.errorRed, color: c.white, padding: "1px 6px", borderRadius: T.radii.sm }, children: "#EF4444" })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "Title: 14px / 600 / ",
                 c.darkText
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "Subtitle: 12px / 400 / ",
                 c.gray500
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
                 "Retry link: 13px / 600 / ",
                 c.errorRed
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: "Placement: sticky top of any page, above content" })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { children: "Placement: sticky top of any page, above content" })
             ] }) })
           ] }),
-          sec === "skeletons" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Skeletons & Loaders" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Animated placeholder components for loading states \u2014 skeleton blocks, cards, inputs, and spinning loaders" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Skeleton Block \u2014 Various Sizes", code: C.skeletonBlock, codeTitle: "SkeletonBlock.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md, maxWidth: 398 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "16px (default)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSkeletonBlock, {})
+          sec === "skeletons" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "Skeletons & Loaders" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { style: { fontSize: T.typography.sizes.body2, color: c.gray400, margin: "0 0 16px" }, children: "Animated placeholder components for loading states \u2014 skeleton blocks, cards, inputs, and spinning loaders" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Skeleton Block \u2014 Various Sizes", code: C.skeletonBlock, codeTitle: "SkeletonBlock.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: T.spacing.md, maxWidth: 398 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "16px (default)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSkeletonBlock, {})
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "20px" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSkeletonBlock, { height: 20 })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "20px" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSkeletonBlock, { height: 20 })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "40px (button-sized)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSkeletonBlock, { height: T.sizes.buttonMd })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "40px (button-sized)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSkeletonBlock, { height: T.sizes.buttonMd })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "46px (input-sized)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSkeletonBlock, { height: T.sizes.inputHeight })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400, marginBottom: T.spacing.sm }, children: "46px (input-sized)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSkeletonBlock, { height: T.sizes.inputHeight })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Skeleton Card", code: C.skeletonCard, codeTitle: "SkeletonCard.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.lg, maxWidth: 500 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSkeletonCard, {}),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSkeletonCard, {})
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Skeleton Card", code: C.skeletonCard, codeTitle: "SkeletonCard.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: T.spacing.lg, maxWidth: 500 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSkeletonCard, {}),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSkeletonCard, {})
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Skeleton Input", code: C.skeletonInput, codeTitle: "SkeletonInput.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 398 }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PSkeletonInput, {}) }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Loading Spinner \u2014 3 Sizes", code: C.loadingSpinner, codeTitle: "LoadingSpinner.vue", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.xl }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "sm" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLoadingSpinner, { size: 16 })
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Skeleton Input", code: C.skeletonInput, codeTitle: "SkeletonInput.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { maxWidth: 398 }, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PSkeletonInput, {}) }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Loading Spinner \u2014 3 Sizes", code: C.loadingSpinner, codeTitle: "LoadingSpinner.vue", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: T.spacing.xl }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "sm" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PLoadingSpinner, { size: 16 })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "md" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLoadingSpinner, { size: 24 })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "md" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PLoadingSpinner, { size: 24 })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "lg" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PLoadingSpinner, { size: 32 })
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: T.typography.sizes.xxs, color: c.gray400 }, children: "lg" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(PLoadingSpinner, { size: 32 })
               ] })
             ] }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Usage Guidelines", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(ProseBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Skeleton Block:" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Usage Guidelines", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(ProseBlock, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("strong", { children: "Skeleton Block:" }),
                 " Use for text lines, headings, and flexible-sized content"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginTop: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Skeleton Card:" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { marginTop: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("strong", { children: "Skeleton Card:" }),
                 " For card-based layouts like game cards or product cards with image + text"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginTop: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Skeleton Input:" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { marginTop: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("strong", { children: "Skeleton Input:" }),
                 " Show when a form is loading \u2014 exactly 46px height matches PInput"
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginTop: T.spacing.sm }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Loading Spinner:" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { marginTop: T.spacing.sm }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("strong", { children: "Loading Spinner:" }),
                 " Central loading indicator \u2014 use sm in buttons, md for inline sections, lg for full-page loads"
               ] })
             ] }) })
           ] }),
-          sec === "homepage" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "HomePage (Following Tab)" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Page Overview", desc: "Main home feed with MainTopBar, MainTabs, live games, following section, and recent games", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(ProseBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { marginBottom: T.spacing.sm }, children: "Structure:" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ul", { style: { margin: 0, paddingLeft: T.spacing.lg }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: 'MainTopBar (Pixellot logo, search, notifications, user "BR" avatar)' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "MainTabs (Following active, All Teams, Team Shop) \u2014 RED underline" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Hero banner carousel placeholder" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: 'SectionHeader "Live" with "See all >"' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Horizontal scroll of LiveGameCards" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: 'SectionHeader "Following"' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "SubTabs (Athletes | Teams) \u2014 BLUE underline" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: 'FilterDropdown "All Teams"' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Jersey avatar circles for followed athletes" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: 'SectionHeader "Recent Games"' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "GameResultCards (vertical list)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: '"See All >" button' })
+          sec === "homepage" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "HomePage (Following Tab)" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Page Overview", desc: "Main home feed with MainTopBar, MainTabs, live games, following section, and recent games", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(ProseBlock, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { marginBottom: T.spacing.sm }, children: "Structure:" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("ul", { style: { margin: 0, paddingLeft: T.spacing.lg }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: 'MainTopBar (Pixellot logo, search, notifications, user "BR" avatar)' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "MainTabs (Following active, All Teams, Team Shop) \u2014 RED underline" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "Hero banner carousel placeholder" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: 'SectionHeader "Live" with "See all >"' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "Horizontal scroll of LiveGameCards" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: 'SectionHeader "Following"' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "SubTabs (Athletes | Teams) \u2014 BLUE underline" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: 'FilterDropdown "All Teams"' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "Jersey avatar circles for followed athletes" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: 'SectionHeader "Recent Games"' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "GameResultCards (vertical list)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: '"See All >" button' })
               ] })
             ] }) })
           ] }),
-          sec === "gamedetailpage" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "GameDetailPage" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Card, { title: "Page Overview", desc: "Detailed game view with score, videos, stats, and player leaders", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(ProseBlock, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { marginBottom: T.spacing.sm }, children: "Structure:" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ul", { style: { margin: 0, paddingLeft: T.spacing.lg }, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "MainTopBar" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: 'BackButton "\u2190 Back"' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "ScoreCard (89 vs 77, Final, date, standings)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "VideoTypeChips row: Full Game (active/RED), Condensed Game, Game Highlights, with lock icons" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: '"Full Game" section \u2014 FreeBadge + VideoThumbnail' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: '"Condensed Game" section \u2014 PremiumBadge + VideoThumbnail' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: '"Game Highlights" section \u2014 PremiumBadge + horizontal VideoThumbnails' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: '"Personal Highlights" \u2014 ClaimedBadge + InfoAlert' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Team tabs (MainTabs style) showing teams" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: '"Followed Players" + locked VideoThumbnails (lock icon badge)' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: '"Other Players" + PremiumBadge + video thumbnails' }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "TeamStatsBar comparisons (Points, Rebounds, Assists)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "PlayerStatsTable (columns: Player, MIN, PTS, REB, AST)" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "GameLeaders (team logos, leaders comparison)" })
+          sec === "gamedetailpage" && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { style: { fontSize: T.typography.sizes.lg, fontWeight: T.typography.weights.extraBold, color: c.darkText, marginBottom: T.spacing.md2 }, children: "GameDetailPage" }),
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Card, { title: "Page Overview", desc: "Detailed game view with score, videos, stats, and player leaders", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(ProseBlock, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { marginBottom: T.spacing.sm }, children: "Structure:" }),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("ul", { style: { margin: 0, paddingLeft: T.spacing.lg }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "MainTopBar" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: 'BackButton "\u2190 Back"' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "ScoreCard (89 vs 77, Final, date, standings)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "VideoTypeChips row: Full Game (active/RED), Condensed Game, Game Highlights, with lock icons" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: '"Full Game" section \u2014 FreeBadge + VideoThumbnail' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: '"Condensed Game" section \u2014 PremiumBadge + VideoThumbnail' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: '"Game Highlights" section \u2014 PremiumBadge + horizontal VideoThumbnails' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: '"Personal Highlights" \u2014 ClaimedBadge + InfoAlert' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "Team tabs (MainTabs style) showing teams" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: '"Followed Players" + locked VideoThumbnails (lock icon badge)' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: '"Other Players" + PremiumBadge + video thumbnails' }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "TeamStatsBar comparisons (Points, Rebounds, Assists)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "PlayerStatsTable (columns: Player, MIN, PTS, REB, AST)" }),
+                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("li", { children: "GameLeaders (team logos, leaders comparison)" })
               ] })
             ] }) })
           ] })
         ] })
       ] });
     };
-    const dc = theme === "dark" ? DARK : LIGHT;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ThemeCtx.Provider, { value: theme, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { position: "fixed", inset: 0, background: dc.white, color: dc.darkText, transition: "background 0.3s ease, color 0.3s ease", overflow: "auto" }, children: renderContent() }) });
+    const dc = theme === "dark" ? DARK : LIGHT2;
+    return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(ThemeCtx3.Provider, { value: theme, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { position: "fixed", inset: 0, background: dc.white, color: dc.darkText, transition: "background 0.3s ease, color 0.3s ease", overflow: "auto" }, children: renderContent() }) });
   }
-  var __root = document.getElementById("root");
-  if (__root) (0, import_client.createRoot)(__root).render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(PixellotDesignSystem, {}));
+
+  // src/index.tsx
+  var import_jsx_runtime17 = __toESM(require_jsx_runtime());
+  var root = document.getElementById("root");
+  if (root) {
+    const loader = document.getElementById("_loader");
+    if (loader) loader.remove();
+    (0, import_client.createRoot)(root).render(/* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ThemeProvider, { children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(App, {}) }));
+  }
 })();
 /*! Bundled license information:
 
-react/cjs/react.production.js:
+scheduler/cjs/scheduler.production.js:
   (**
    * @license React
-   * react.production.js
+   * scheduler.production.js
    *
    * Copyright (c) Meta Platforms, Inc. and affiliates.
    *
@@ -19782,10 +19083,10 @@ react/cjs/react.production.js:
    * LICENSE file in the root directory of this source tree.
    *)
 
-scheduler/cjs/scheduler.production.js:
+react/cjs/react.production.js:
   (**
    * @license React
-   * scheduler.production.js
+   * react.production.js
    *
    * Copyright (c) Meta Platforms, Inc. and affiliates.
    *

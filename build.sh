@@ -7,7 +7,7 @@ OUT="$DIR/../mnt/outputs/pixellot-design-system"
 
 echo "→ Building bundle..."
 "$DIR/node_modules/.bin/esbuild" \
-  "$DIR/pixellot-design-system.tsx" \
+  "$DIR/src/index.tsx" \
   --bundle --format=iife --platform=browser \
   --jsx=automatic \
   --loader:.tsx=tsx --loader:.ts=ts \
@@ -24,7 +24,7 @@ html = '''<!DOCTYPE html>
 <head>
   <meta charset=\"UTF-8\">
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-  <title>Pixellot Design System v2</title>
+  <title>Pixellot Design System v3</title>
   <link href=\"https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;500;600;700;800&display=swap\" rel=\"stylesheet\">
   <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Red Hat Display,sans-serif}#root{width:100%;min-height:100vh}#_loader{display:flex;align-items:center;justify-content:center;height:100vh;font-family:Red Hat Display,sans-serif;color:#888;font-size:14px}</style>
 </head>
