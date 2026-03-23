@@ -11,4 +11,5 @@ export * from "./lists";
 export * from "./players";
 export * from "./social";
 export * from "./states";
-export { ChipLockSvg, AppleIcon, GoogleIcon, PixellotLogo } from "./badges";
+export { LockSvg, ChipLockSvg, AppleIcon, GoogleIcon, PixellotLogo } from "./badges";
+export { CopyBtn } from "./inputs";

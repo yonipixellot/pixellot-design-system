@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, createContext, useContext, type ReactNode, type CSSProperties } from "react";
 import { Eye, EyeOff, ChevronDown, Copy, Check, Search, Play, X, ArrowLeft, Download, Upload, Bookmark, Bell, User, Sun, Moon, Menu, Share2 } from "lucide-react";
-import { useColors, T, F, DEFAULTS, _isLightColor, focusRing, JERSEY_PATH_73, JERSEY_PATH_56, IconComponent } from "../utils";
+import { useColors, useThemeMode, T, F, DEFAULTS, _isLightColor, focusRing, JERSEY_PATH_73, JERSEY_PATH_56, IconComponent } from "../utils";
 
-import { PBadge } from "./badges";
+import { PBadge, LockSvg } from "./badges";
+import { CopyBtn } from "./inputs";
 
 type PVideoThumbnailProps = { orientation?: "landscape" | "portrait" | "vertical"; locked?: boolean; duration?: string; title?: string; subtitle?: string; showJerseyBadge?: boolean; jerseyNumber?: number; jerseyLabel?: string; jerseyColor?: string; thumbnailUrl?: string };
 function PVideoThumbnail({ orientation = "landscape", locked = false, duration = "1:42:15", title = "Full Game", subtitle = "Free", showJerseyBadge = false, jerseyNumber = 1, jerseyLabel = "Player Highlights", jerseyColor = DEFAULTS.jerseyRed, thumbnailUrl }: PVideoThumbnailProps) {
@@ -143,18 +144,7 @@ function PAdBanner({ active: initialActive = 0 }: PAdBannerProps) {
 }
 
 
-/* ── Notifications ── */
-
-
-type PixellotLogoProps = { size?: number };
-function PixellotLogo({ size = 30 }: PixellotLogoProps) {
-  return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 235 163" fill="none" style={{ flexShrink: 0 }}>
-    <path fillRule="evenodd" clipRule="evenodd" d="M172.002 54.528L161.909 108.355C160.962 113.497 157.913 116.015 152.867 116.015H69.176C64.13 116.015 62.027 113.497 63.078 108.355L73.172 54.528C74.118 49.386 77.167 46.868 82.214 46.868H165.904C170.951 46.868 173.053 49.386 172.002 54.528ZM182.095 0.7H83.265C42.6813 0.7 19.5508 16.1242 13.7682 46.868L0.731 116.12C-5.0516 146.863 12.2963 162.288 52.8798 162.288H151.71C192.294 162.288 215.424 146.863 221.207 116.12L234.244 46.868C240.027 16.1242 222.679 0.7 182.095 0.7Z" fill="#00D6FE" />
-  </svg>;
-}
-
-
 /* ── Hero & Branding ── */
 
 
-export { PVideoThumbnail, PBrandHero, PAdBanner, PixellotLogo };
+export { PVideoThumbnail, PBrandHero, PAdBanner };

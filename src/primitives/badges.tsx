@@ -147,4 +147,4 @@ function PixellotLogo({ size = 30 }: PixellotLogoProps) {
   </svg>;
 }
 
-export { PBadge, PBellIcon, PTeamLogo, PAvatar, PPlayerPhoto, PPlayerNumberBadge, ChipLockSvg, AppleIcon, GoogleIcon, PixellotLogo };
+export { PBadge, PBellIcon, PTeamLogo, PAvatar, PPlayerPhoto, PPlayerNumberBadge, LockSvg, ChipLockSvg, AppleIcon, GoogleIcon, PixellotLogo };

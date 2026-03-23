@@ -131,4 +131,17 @@ function PSearchBar({ placeholder = "Search...", value, onChange, onClear, readO
 
 
 
-export { PInput, PSelect, PSearchBar };
+// ── Copy Button ──
+type CopyBtnProps = { text: string };
+function CopyBtn({ text }: CopyBtnProps) {
+  const c = useColors();
+  const [ok, setOk] = useState(false);
+  const [fo, setFo] = useState(false);
+  return <button onClick={() => { navigator.clipboard.writeText(text); setOk(true); setTimeout(() => setOk(false), 1500); }}
+    onFocus={() => setFo(true)} onBlur={() => setFo(false)} aria-label="Copy code"
+    style={{ background: "none", border: "none", cursor: "pointer", color: ok ? c.successGreen : c.gray500, padding: T.spacing.xs, borderRadius: T.radii.sm, ...(fo ? focusRing(c) : {}) }}>
+    {ok ? <Check size={16} /> : <Copy size={16} />}
+  </button>;
+}
+
+export { PInput, PSelect, PSearchBar, CopyBtn };
