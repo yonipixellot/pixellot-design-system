@@ -129,4 +129,4 @@ function PPaymentModal() {
 
 
 
-export { PShareCurtain, PShareCurtainStatic, PPaymentModal };
+export { PShareCurtain, PShareCurtainStatic, PPaymentModal, SHARE_CHANNELS };

@@ -413,4 +413,4 @@ function PMyFollowingList({ teams, players }: PMyFollowingListProps) {
 }
 
 
-export { PBottomTabBar, PAppHeader, PFooter, PSideMenu, PMyFollowingList };
+export { PBottomTabBar, PAppHeader, PFooter, PSideMenu, PMyFollowingList, _TabIcon };

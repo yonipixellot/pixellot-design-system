@@ -17,6 +17,7 @@ import {
   PVideoTypeChips,
   PVideoActionBar,
   PShareCurtain,
+  SHARE_CHANNELS,
   AthleteProfileCard,
   PTeamStatsBar,
   PGameLeaders,
@@ -75,6 +76,7 @@ import {
   PNotificationItem,
   PClaimedPlayerCard,
   PJersey,
+  _TabIcon,
 } from "../primitives";
 import {
   PTypographyPreview,
