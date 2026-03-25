@@ -4,6 +4,23 @@ import { useColors, T, F, DEFAULTS, _isLightColor, focusRing, JERSEY_PATH_73, JE
 
 import { PBtn } from "./buttons";
 
+const EMPTY_PRESETS: Record<string, { icon?: string; title?: string; subtitle?: string; cta?: string | null }> = {
+  noLiveGames:       { icon: "play",     title: "No Live Games",            subtitle: "There are no live games right now. Check back later!",                     cta: null },
+  noFollowing:       { icon: "user",     title: "Not Following Anyone Yet", subtitle: "Follow teams and athletes to see their games and highlights here.",         cta: "Browse Teams" },
+  noRecentGames:     { icon: "play",     title: "No Recent Games",          subtitle: "Games you follow will show up here once they're played.",                   cta: null },
+  noNotifications:   { icon: "bell",     title: "No Notifications",         subtitle: "You're all caught up! New updates will appear here.",                       cta: null },
+  noHighlights:      { icon: "play",     title: "No Highlights Yet",        subtitle: "Highlights for this game are still being processed.",                       cta: null },
+  noPersonal:        { icon: "play",     title: "No Personal Highlights",   subtitle: "Claim a player to get personalized highlight reels after each game.",       cta: "Claim Player" },
+  noPlayerStats:     { icon: "search",   title: "Stats Unavailable",        subtitle: "Player statistics were not recorded for this game.",                        cta: null },
+  noFollowedPlayers: { icon: "user",     title: "No Followed Players",      subtitle: "You're not following any players in this game.",                            cta: "Browse Players" },
+  noSavedVideos:     { icon: "bookmark", title: "No Saved Videos",          subtitle: "Videos you bookmark will be saved here for easy access.",                   cta: null },
+  noSearchResults:   { icon: "search",   title: "No Results Found",         subtitle: "Try a different search term or check for typos.",                           cta: null },
+  noTeamsFound:      { icon: "search",   title: "No Teams Found",           subtitle: "We couldn't find teams in your area. Try searching manually.",              cta: "Search Teams" },
+  noClaimedPlayer:   { icon: "user",     title: "No Claimed Player",        subtitle: "Claim your player profile to unlock personal highlights and career stats.", cta: "Claim Player" },
+};
+
+const ICON_MAP: Record<string, any> = { play: Play, user: User, bell: Bell, search: Search, bookmark: Bookmark };
+
 type PEmptyStateProps = { preset?: string; icon?: ReactNode; title?: string; subtitle?: string; cta?: string; onAction?: () => void };
 function PEmptyState({ preset, icon, title, subtitle, cta, onAction }: PEmptyStateProps) {
   const c = useColors();
@@ -117,4 +134,4 @@ function PLoadingSpinner({ size }: { size?: number } = {}) {
   }} />;
 }
 
-export { PEmptyState, PErrorState, POfflineBanner, PSkeletonBlock, PSkeletonCard, PSkeletonInput, PLoadingSpinner };
+export { PEmptyState, PErrorState, POfflineBanner, PSkeletonBlock, PSkeletonCard, PSkeletonInput, PLoadingSpinner, EMPTY_PRESETS, ICON_MAP };
